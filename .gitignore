@@ -1,0 +1,16 @@
+*.iml
+.gradle/
+.kotlin/
+/local.properties
+/.idea/
+.DS_Store
+build/
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Offline models are large binaries that live outside the repo.
+/app/src/main/assets/model-hi/
+/app/src/main/assets/model-en-in/
+*.task
