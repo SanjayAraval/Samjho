@@ -19,6 +19,7 @@ import com.packetloss.samjho.AiState
 import com.packetloss.samjho.voice.Speaker
 import com.packetloss.samjho.extract.Lexicon
 import com.packetloss.samjho.model.Basis
+import com.packetloss.samjho.model.Confirmation
 import com.packetloss.samjho.model.Provenance
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -330,6 +331,9 @@ fun ResultScreen(
 private fun MedicineCard(index: Int, m: Medicine, extraction: Extraction, t: Strings, actions: MedicineActions) {
     var choosing by remember { mutableStateOf(false) }
     val inferred = m.basis != Basis.HEARD
+    val known = Lexicon.isKey(m.key)
+    // A word next to "tablet" that is not a known medicine is unconfirmed too, without "Possibly: X".
+    val showsStatus = inferred || m.confirmation != Confirmation.NOT_NEEDED
     val primary = MaterialTheme.colorScheme.primary
 
     Panel(bg = if (m.isRejected) Color(0xFFEFF2F4) else if (m.isUnconfirmed) AvoidTint else Color.White) {
@@ -345,10 +349,10 @@ private fun MedicineCard(index: Int, m: Medicine, extraction: Extraction, t: Str
             return@Panel
         }
 
-        if (inferred) {
+        if (showsStatus) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (m.isUnconfirmed) Pill(t.unconfirmed, WarnTint, WarnInk) else Pill(t.confirmed, OkTint, primary)
-                Pill(t.basis(m.basis, m.hypothesis), Color(0xFFEDEFF2), Muted)
+                if (inferred) Pill(t.basis(m.basis, m.hypothesis), Color(0xFFEDEFF2), Muted)
                 if (m.provenance == Provenance.AI) Pill("AI", Color(0xFFEDEFF2), Muted)
             }
         }
@@ -356,7 +360,8 @@ private fun MedicineCard(index: Int, m: Medicine, extraction: Extraction, t: Str
         when {
             m.isUnconfirmed -> {
                 Text("${t.heardAs} “${m.name}”", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                Text("${t.possibly}: ${Lexicon.display(m.key)}", fontSize = 17.sp, color = AvoidInk)
+                if (known) Text("${t.possibly}: ${Lexicon.display(m.key)}", fontSize = 17.sp, color = AvoidInk)
+                else Text(t.isThisAMedicine, fontSize = 17.sp, color = AvoidInk)
             }
             inferred -> {
                 Text(Lexicon.display(m.key), fontSize = 25.sp, fontWeight = FontWeight.Bold)
@@ -391,7 +396,7 @@ private fun MedicineCard(index: Int, m: Medicine, extraction: Extraction, t: Str
                 OutlinedButton(onClick = { actions.reject(index) }, shape = RoundedCornerShape(12.dp)) { Text(t.no) }
                 TextButton(onClick = { choosing = true }) { Text(t.chooseAnother) }
             }
-        } else if (inferred) {
+        } else if (showsStatus) {
             UndoLink(t) { actions.undo(index) }
         }
 

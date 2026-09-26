@@ -69,5 +69,25 @@ object DemoConsultations {
         ),
     )
 
-    val ALL = listOf(HINDI, ENGLISH, ENGLISH_AS_HEARD)
+    /**
+     * A real live reading of the consult on the phone, unedited (release candidate 29d497a, Android
+     * system recogniser, en-US). Paracetamol arrives as "Paris at Mall", azithromycin as "throw
+     * medicine", and cetirizine's name is lost entirely, so it shows every recovery path at once.
+     */
+    val ENGLISH_LIVE_READ = DemoConsultation(
+        id = "en-live-read",
+        label = "English: live read on the phone",
+        language = Language.ENGLISH,
+        lines = listOf(
+            "You have a viral fever nothing to worry about take Paris at Mall three times a day after food for 5 days",
+            "Is it throw medicine once a day in the morning on an empty stomach for 3 days",
+            "Once it is in tablet at night before sleeping",
+            "also dollar 650 if the fever comes back",
+            "Avoid cold water and fried food",
+            "If the fever goes above 102 go to the hospital immediately",
+            "Come back after 5 days for a checkup",
+        ),
+    )
+
+    val ALL = listOf(HINDI, ENGLISH, ENGLISH_AS_HEARD, ENGLISH_LIVE_READ)
 }

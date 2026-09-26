@@ -126,20 +126,18 @@ data class Extraction(
     val dosingLines: Set<Int> = emptySet(),
 ) {
     /**
-     * Dosing the doctor gave that no active item cites, so it is not tied to any medicine (its name
-     * was misheard past recognition, or the patient dismissed the guess). Shown as the doctor's own
-     * line, so an instruction is never silently dropped and no medicine is guessed for it.
+     * Dosing the doctor gave that no active MEDICINE cites, so it is not tied to any medicine (its
+     * name was misheard past recognition, or the patient dismissed the guess). Shown as the line as
+     * heard, so an instruction is never silently dropped and no medicine is guessed for it.
+     *
+     * Only medicines count as covering a line. A diagnosis, an avoid item or a warning citing the same
+     * line says nothing about the medicine: on a real run one sentence held both "you have a viral
+     * fever" and "take <mangled name> three times a day", and the diagnosis hid the dosing.
      */
     val unnamedDosing: List<TranscriptLine>
         get() {
-            val cited = buildSet {
-                medicines.filterNot { it.isRejected }.forEach { addAll(it.sourceLines) }
-                diagnosis.forEach { addAll(it.sourceLines) }
-                avoid.forEach { addAll(it.sourceLines) }
-                warnings.forEach { addAll(it.sourceLines) }
-                followUp?.let { addAll(it.sourceLines) }
-            }
-            return lines.filter { it.index in dosingLines && it.index !in cited }
+            val named = medicines.filterNot { it.isRejected }.flatMap { it.sourceLines }.toSet()
+            return lines.filter { it.index in dosingLines && it.index !in named }
         }
 
     fun quotes(indices: List<Int>): List<TranscriptLine> =

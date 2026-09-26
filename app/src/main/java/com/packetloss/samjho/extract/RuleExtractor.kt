@@ -30,6 +30,11 @@ object RuleExtractor {
 
     private val N = "(?:${Numbers.GROUP})"
 
+    // Java's \b is ASCII-only, so word edges in Devanagari are spelled out: no letter or vowel sign
+    // may touch the match on that side.
+    private const val WORD_START = "(?<![\\p{L}\\p{M}])"
+    private const val WORD_END = "(?![\\p{L}\\p{M}])"
+
     fun extract(rawLines: List<String>): Extraction = extractUtterances(rawLines.map { Utterance(it) })
 
     /**
@@ -154,13 +159,21 @@ object RuleExtractor {
         sourceLines = lines,
         basis = f.basis,
         hypothesis = f.hypothesis,
-        confirmation = if (f.basis == Basis.HEARD) Confirmation.NOT_NEEDED else Confirmation.UNCONFIRMED,
-        candidates = if (f.basis == Basis.HEARD) emptyList() else candidatesFor(f),
+        // Only a word spelled like a known medicine is taken as heard. An unknown word that merely sits
+        // next to "tablet" ("throw medicine", "egg 1 tablet") is not evidence of a drug name, so it waits
+        // for the patient like any other guess.
+        confirmation = if (f.basis == Basis.HEARD && Lexicon.isKey(f.key)) Confirmation.NOT_NEEDED else Confirmation.UNCONFIRMED,
+        candidates = if (f.basis == Basis.HEARD && Lexicon.isKey(f.key)) emptyList() else candidatesFor(f),
     )
 
-    /** The matched medicine first, then its nearest sound-alikes, for the patient's "choose another". */
-    private fun candidatesFor(f: Found): List<String> =
-        (listOf(f.key) + Lexicon.closest(Normalize.text(f.name), 5).map { it.key }).distinct().take(5)
+    /**
+     * For "choose another": the matched lexicon medicine first (when there is one), then the nearest
+     * sound-alikes to the word that was heard.
+     */
+    private fun candidatesFor(f: Found): List<String> {
+        val own = if (Lexicon.isKey(f.key)) listOf(f.key) else emptyList()
+        return (own + Lexicon.closest(Normalize.text(f.name), 5).map { it.key }).distinct().take(5)
+    }
 
     /** The patient talking about themselves ("I have had fever for two days"), which is never dosing. */
     private val PATIENT_SPEECH = Regex("(?:^|\\s)(?:i|my|me|मुझे|मेरा|मेरी|मैं)(?:\\s|$)")
@@ -175,8 +188,11 @@ object RuleExtractor {
         val n = Normalize.text(text)
         if (PATIENT_SPEECH.containsMatchIn(n)) return false
         val a = attributesIn(n)
+        // A dosage form ("tablet", "syrup", "गोली") is itself a dosing signal: "tablet at night" is an
+        // instruction even when the drug's name was lost ("Once it is in tablet at night before sleeping").
+        val hasForm = Normalize.tokens(text).any { it.normalized in DOSAGE_FORMS }
         val kinds = listOf(
-            a.timesOfDay.isNotEmpty(), a.doseCount != null, a.foodRelation != null, a.durationDays != null,
+            a.timesOfDay.isNotEmpty(), a.doseCount != null, a.foodRelation != null, a.durationDays != null, hasForm,
         ).count { it }
         return a.timesPerDay != null || kinds >= 2
     }
@@ -311,7 +327,33 @@ object RuleExtractor {
             out.putIfAbsent(key, Found(key, t.display, Basis.SOUNDS_LIKE))
         }
 
+        // Speech models often split one drug name into several words ("Paris at Mall" for paracetamol:
+        // joined, it has exactly paracetamol's consonant skeleton). Two or three adjacent words are
+        // tried together, but only with dosing words beside them and only on an IDENTICAL skeleton,
+        // the tightest tier, because joining common words gives far more chances of a coincidence.
+        for (i in tokens.indices) {
+            if (blocked(tokens[i])) continue
+            for (span in 2..3) {
+                val j = i + span - 1
+                if (j > tokens.lastIndex || Numbers.parse(tokens[j].normalized) != null) break
+                if (!nearDosingRange(tokens, i, j)) continue
+                val joined = (i..j).joinToString("") { tokens[it].normalized }
+                val key = Lexicon.matchPhonetic(joined, maxRank = 0) ?: continue
+                val heard = (i..j).joinToString(" ") { tokens[it].display }
+                out.putIfAbsent(key, Found(key, heard, Basis.SOUNDS_LIKE))
+            }
+        }
+
         return out.values.toList()
+    }
+
+    /** Dosing words within three tokens of a run of words, not counting the run itself. */
+    private fun nearDosingRange(tokens: List<Normalize.Token>, from: Int, to: Int): Boolean {
+        val lo = maxOf(0, from - 3)
+        val hi = minOf(tokens.lastIndex, to + 3)
+        return (lo..hi).any { k ->
+            k !in from..to && (tokens[k].normalized in DOSAGE_FORMS || tokens[k].normalized in DOSING_WORDS)
+        }
     }
 
     private val DOSING_WORDS = setOf(
@@ -352,12 +394,13 @@ object RuleExtractor {
     )
 
     private val FREQUENCY = listOf(
-        Regex("(?:दिन\\s+में|रोज|रोजाना|प्रतिदिन|हर\\s+दिन)\\s+($N)\\s*बार"),
-        Regex("($N)\\s*बार\\s+(?:रोज|रोजाना|प्रतिदिन|दिन\\s+में)"),
+        // "बार" must be a whole word: without the guards "दोबारा" (again) reads as "दो बार" = twice.
+        Regex("(?:दिन\\s+में|रोज|रोजाना|प्रतिदिन|हर\\s+दिन)\\s+($N)\\s*बार$WORD_END"),
+        Regex("$WORD_START($N)\\s*बार$WORD_END\\s+(?:रोज|रोजाना|प्रतिदिन|दिन\\s+में)"),
         Regex("($N)\\s+times?\\s+(?:a|per|each)\\s+day"),
         Regex("($N)\\s+times?\\s+daily"),
         Regex("\\b(once|twice|thrice)\\s+(?:a\\s+day|daily|per\\s+day|every\\s+day)"),
-        Regex("($N)\\s*बार"),
+        Regex("$WORD_START($N)\\s*बार$WORD_END"),
     )
 
     private val DOSE = listOf(
@@ -484,6 +527,12 @@ object RuleExtractor {
         Regex("(?:this|it)\\s+is\\s+(.+?)(?:,|\\s+(?:and|but|so|nothing)\\b|$)"),
     )
 
+    /** A condition never begins with one of these ("it is IN tablet at night" is not a diagnosis). */
+    private val LEADING_PREPOSITIONS = setOf(
+        "in", "at", "on", "for", "to", "of", "with", "by", "from", "about", "after", "before", "during",
+        "में", "पर", "से", "को", "के", "का", "की",
+    )
+
     private fun diagnosisIn(n: String): String? {
         for (r in DIAGNOSIS) {
             val raw = r.find(n)?.groupValues?.get(1) ?: continue
@@ -491,6 +540,11 @@ object RuleExtractor {
             val text = tidy(raw)
             val words = text.split(" ").filter { it.isNotBlank() }
             if (words.isEmpty() || words.size > 6) continue
+            // Found on a real run: "Once it is in tablet at night before sleeping" matched "it is ..." and
+            // produced a diagnosis. A condition does not start with a preposition or mention a dosage form
+            // or dosing words; that is a dosing instruction, not a diagnosis.
+            if (words.first() in LEADING_PREPOSITIONS) continue
+            if (words.any { it in DOSAGE_FORMS || it in DOSING_WORDS }) continue
             return text
         }
         return null

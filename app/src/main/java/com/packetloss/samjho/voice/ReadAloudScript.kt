@@ -63,7 +63,8 @@ object ReadAloudScript {
             m.durationDays?.let { add(t.durationDays(it)) }
         }
         val name = when {
-            m.isUnconfirmed -> t.readNotConfirmed(m.name, Lexicon.display(m.key))
+            m.isUnconfirmed && Lexicon.isKey(m.key) -> t.readNotConfirmed(m.name, Lexicon.display(m.key))
+            m.isUnconfirmed -> t.readNotConfirmedUnknown(m.name)
             m.basis != com.packetloss.samjho.model.Basis.HEARD -> Lexicon.display(m.key)
             else -> m.name
         }

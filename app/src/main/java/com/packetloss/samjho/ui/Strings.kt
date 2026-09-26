@@ -42,6 +42,11 @@ class Strings(private val language: Language) {
     val stopReading = pick("⏹ रोकें", "⏹ Stop")
     val readIntro = pick("यह वही है जो बातचीत में सुना गया।", "Here is what was heard in the consultation.")
 
+    fun readNotConfirmedUnknown(heard: String) = pick(
+        "अपुष्ट: $heard सुना गया। पता नहीं कि यह दवा का नाम है।",
+        "Not confirmed: heard as $heard. It is not known whether this is a medicine name.",
+    )
+
     fun readNotConfirmed(heard: String, possibly: String) = pick(
         "अपुष्ट: $heard सुना गया, शायद $possibly।",
         "Not confirmed: heard as $heard, possibly $possibly.",
@@ -54,6 +59,7 @@ class Strings(private val language: Language) {
     val heardAs = pick("सुना गया", "Heard as")
     val possibly = pick("शायद", "Possibly")
     val unconfirmed = pick("अपुष्ट", "UNCONFIRMED")
+    val isThisAMedicine = pick("क्या यह दवा का नाम है?", "Is this a medicine name?")
     val confirmed = pick("पुष्ट", "CONFIRMED")
     val yes = pick("हाँ", "Yes")
     val no = pick("नहीं", "No")

@@ -64,7 +64,9 @@ class ConfirmationTest {
     fun everyInferredMedicineStartsUnconfirmedAndOnlyAHeardOneNeedsNoConfirmation() {
         everyTranscriptWeHave.forEach { (name, e) ->
             e.medicines.forEach { m ->
-                if (m.basis == Basis.HEARD) {
+                // Only a word spelled like a known medicine is taken as heard; an unknown word beside
+                // "tablet" is not evidence of a drug name and waits for the patient too.
+                if (m.basis == Basis.HEARD && Lexicon.isKey(m.key)) {
                     assertEquals("$name: '${m.name}'", Confirmation.NOT_NEEDED, m.confirmation)
                 } else {
                     assertEquals("$name: '${m.name}' (${m.basis})", Confirmation.UNCONFIRMED, m.confirmation)
@@ -79,7 +81,7 @@ class ConfirmationTest {
             e.medicines.filter { it.isUnconfirmed }.forEach { m ->
                 assertTrue("$name: '${m.name}' has no candidates", m.candidates.isNotEmpty())
                 assertTrue(m.candidates.size <= 5)
-                assertEquals(m.key, m.candidates.first())
+                if (Lexicon.isKey(m.key)) assertEquals(m.key, m.candidates.first())
                 assertTrue(m.sourceLines.isNotEmpty() && m.sourceLines.all { it in e.lines.indices })
             }
         }

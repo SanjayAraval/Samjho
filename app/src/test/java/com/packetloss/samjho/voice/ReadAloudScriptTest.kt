@@ -51,8 +51,11 @@ class ReadAloudScriptTest {
         val s = say(DemoConsultations.ENGLISH_AS_HEARD.lines) { e ->
             e.updateMedicine(e.medicines.indexOfFirst { it.name == "citrus" }) { it.rejected() }
         }
-        assertFalse(s.contains("citrus"))
         assertFalse(s.contains("Cetirizine"))
+        assertFalse(s.contains("heard as citrus"))
+        // The dismissed guess's dosing line is not lost: it comes back as the line as heard, with no name.
+        assertTrue(s.contains("Dosing heard, medicine name unclear"))
+        assertTrue(s.contains("and one citrus in tablet at night before sleeping"))
     }
 
     @Test

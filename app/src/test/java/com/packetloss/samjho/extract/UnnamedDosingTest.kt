@@ -48,6 +48,16 @@ class UnnamedDosingTest {
     }
 
     @Test
+    fun theHindiWordForAgainIsNotReadAsTwice() {
+        // "दोबारा" (again) contains "बार"; it once parsed as "दो बार" = 2 times and made the follow-up
+        // line look like dosing.
+        assertFalse(RuleExtractor.hasDosing("पांच दिन बाद दोबारा दिखाने आना।"))
+        val r = RuleExtractor.extract(listOf("पैरासिटामोल की गोली दिन में तीन बार खाने के बाद।", "पांच दिन बाद दोबारा दिखाने आना।"))
+        assertEquals(3, r.medicines.single().timesPerDay)
+        assertTrue(r.unnamedDosing.isEmpty())
+    }
+
+    @Test
     fun aFollowUpOrWarningLineIsNotFlagged() {
         assertEquals(emptyList<String>(), unnamed("Come back after 5 days", "If the fever goes above 102 go to the hospital immediately"))
     }
