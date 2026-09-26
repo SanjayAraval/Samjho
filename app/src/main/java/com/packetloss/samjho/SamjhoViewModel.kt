@@ -24,6 +24,9 @@ import com.packetloss.samjho.speech.EngineId
 import com.packetloss.samjho.speech.SpeechEngine
 import com.packetloss.samjho.speech.SpeechPrefs
 import com.packetloss.samjho.speech.VoskEngine
+import com.packetloss.samjho.ui.Strings
+import com.packetloss.samjho.voice.ReadAloudScript
+import com.packetloss.samjho.voice.Speaker
 
 /** Logcat tag for how each medicine was identified and what the patient decided about it. */
 private const val NAMES = "SamjhoNames"
@@ -50,6 +53,7 @@ sealed interface AiState {
 
 data class UiState(
     val ai: AiState = AiState.Idle,
+    val reading: Speaker.State = Speaker.State.Idle,
     val extraction: Extraction? = null,
     /** How long the deterministic pass took. Shown on screen: the budget is 1-2 seconds. */
     val ruleMillis: Long = 0,
@@ -70,6 +74,7 @@ class SamjhoViewModel(app: Application) : AndroidViewModel(app) {
     var state by mutableStateOf(UiState())
         private set
 
+    private val speaker = Speaker(app)
     private val llm: LlmEngine = LlmEngines.create(app)
     private val aiWorker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -134,8 +139,19 @@ class SamjhoViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun back() {
-        state = state.copy(extraction = null, recording = null, ruleMillis = 0, sourceLabel = "")
+        speaker.stop()
+        state = state.copy(extraction = null, recording = null, ruleMillis = 0, sourceLabel = "", reading = Speaker.State.Idle)
     }
+
+    /** Reads the result on screen aloud, exactly as shown, using only an offline voice. */
+    fun readAloud() {
+        val e = state.extraction ?: return
+        val sentences = ReadAloudScript.build(e, Strings(e.language))
+        Log.i(NAMES, "read-aloud: ${sentences.size} sentences, language=${e.language}")
+        speaker.speak(e.language, sentences) { s -> main.post { state = state.copy(reading = s) } }
+    }
+
+    fun stopReading() = speaker.stop()
 
     fun confirmMedicine(index: Int) = decide(index, "confirm") { it.confirmed() }
 
@@ -215,6 +231,7 @@ class SamjhoViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        speaker.shutdown()
         engines.values.forEach { it.stop() }
     }
 }

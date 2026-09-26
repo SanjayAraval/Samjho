@@ -16,6 +16,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.ui.text.style.TextDecoration
 import com.packetloss.samjho.AiState
+import com.packetloss.samjho.voice.Speaker
 import com.packetloss.samjho.extract.Lexicon
 import com.packetloss.samjho.model.Basis
 import com.packetloss.samjho.model.Provenance
@@ -211,6 +212,9 @@ fun ResultScreen(
     ruleMillis: Long,
     sourceLabel: String,
     ai: AiState,
+    reading: Speaker.State,
+    onRead: () -> Unit,
+    onStopReading: () -> Unit,
     actions: MedicineActions,
     onBack: () -> Unit,
 ) {
@@ -239,6 +243,15 @@ fun ResultScreen(
 
             Text(sourceLabel, fontSize = 13.sp, color = Muted)
             Text("${ruleMillis} ms", fontSize = 13.sp, color = Muted)
+
+            if (reading is Speaker.State.Speaking) {
+                OutlinedButton(onClick = onStopReading, shape = RoundedCornerShape(12.dp)) { Text(t.stopReading, fontSize = 16.sp) }
+            } else {
+                Button(onClick = onRead, shape = RoundedCornerShape(12.dp)) { Text(t.readAloud, fontSize = 16.sp) }
+            }
+            if (reading is Speaker.State.Unavailable) {
+                Text(reading.reason, fontSize = 14.sp, color = WarnInk)
+            }
 
             val toConfirm = extraction.medicines.count { it.isUnconfirmed }
             if (toConfirm > 0) {

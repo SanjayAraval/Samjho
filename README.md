@@ -84,6 +84,18 @@ The engine is a setting on the home screen, defaulting to Android.
 Each transcript line is logged as `SamjhoSpeech`, and how each medicine was identified and what
 the patient decided is logged as `SamjhoNames` (`adb logcat -s SamjhoSpeech SamjhoNames`).
 
+## Read aloud
+
+The result screen has a Read aloud button. It speaks exactly what the screen shows: an unconfirmed
+medicine is spoken as "not confirmed: heard as X, possibly Y", never as a fact, and a medicine the
+patient dismissed is skipped. It uses the phone's text-to-speech engine and **only voices installed
+on the phone**: a voice that needs the network is never used, and if none is installed the screen says
+so instead of speaking. Set-up needed once, while online: Settings > Text-to-speech > Google > install
+the voice data for the language. On the iQOO I2501 an offline English voice is present and an offline
+Hindi voice is not, so Hindi read-aloud needs that Hindi voice installed first. Reading the English
+demo summary takes about 50 seconds; the button becomes Stop while it speaks. Events are logged as
+`SamjhoVoice`.
+
 ## How medicine names are recovered
 
 1. **Rules**: exact and near-exact lexicon matches, then consonant-skeleton sound matching, only
@@ -134,4 +146,5 @@ ever creates a confirmed medicine".
 - The medicine lexicon is small (about 25 common outpatient drugs); unknown brands are still caught
   by "X tablet" phrasing but are shown as heard, not identified.
 - Recognisers mishear drug names. That is why inferred names are confirmed by the patient.
-- Reminders and read-aloud are not built yet.
+- Reminders are not built yet.
+- Read-aloud needs an offline voice for the language (see above); Hindi does not have one on the test phone.

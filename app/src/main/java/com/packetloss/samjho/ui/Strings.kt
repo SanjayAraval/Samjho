@@ -38,6 +38,15 @@ class Strings(private val language: Language) {
     val hideWords = pick("छिपाएँ", "Hide")
     val nothingHere = pick("डॉक्टर ने इस बारे में कुछ नहीं कहा।", "The doctor did not mention this.")
 
+    val readAloud = pick("🔊 सुनाएँ", "🔊 Read aloud")
+    val stopReading = pick("⏹ रोकें", "⏹ Stop")
+    val readIntro = pick("यह वही है जो बातचीत में सुना गया।", "Here is what was heard in the consultation.")
+
+    fun readNotConfirmed(heard: String, possibly: String) = pick(
+        "अपुष्ट: $heard सुना गया, शायद $possibly।",
+        "Not confirmed: heard as $heard, possibly $possibly.",
+    )
+
     val rulesOnly = pick("नियम आधारित", "RULES ONLY")
     val aiChecking = pick("AI जाँच रहा है…", "AI CHECKING…")
     val aiPlusRules = pick("AI + नियम", "AI + RULES")
