@@ -64,11 +64,14 @@ fun RecordScreen(
                     color = Muted,
                     fontSize = 15.sp,
                 )
-                else -> Pill(
-                    if (hindi) "माइक चालू · पूरी तरह ऑफ़लाइन" else "Mic on · fully offline",
-                    OkTint,
-                    MaterialTheme.colorScheme.primary,
-                )
+                else -> {
+                    val notGuaranteed = recording.detail.startsWith("system")
+                    Pill(
+                        (if (hindi) "माइक चालू · " else "Mic on · ") + recording.detail,
+                        if (notGuaranteed) AvoidTint else OkTint,
+                        if (notGuaranteed) AvoidInk else MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
 
             Column(

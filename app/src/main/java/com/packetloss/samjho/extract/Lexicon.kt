@@ -98,7 +98,12 @@ object Lexicon {
 
     /** 0 = same skeleton, 1 = clipped prefix, 2 = one slip. Lower is a tighter match. */
     private fun phoneticRank(token: String, lex: String, tokenLength: Int): Int? {
-        if (token[0] != lex[0]) return null
+        // Speech models often drop the first syllable ("azithromycin" heard as "thromison", so
+        // "strmsn" arrives as "trmsn"). At five or more consonants a single slip anywhere is far
+        // too specific to be a coincidence, so only the one-slip tier may ignore the first letter.
+        if (token[0] != lex[0]) {
+            return if (token.length >= 5 && lex.length >= 5 && Normalize.editDistance(token, lex) <= 1) 2 else null
+        }
 
         // A two-consonant skeleton (dolo = "dl") is too short to trust on its own, so it only
         // accepts a longer, clearly word-like token that begins with it ("dollar" = "dlr").

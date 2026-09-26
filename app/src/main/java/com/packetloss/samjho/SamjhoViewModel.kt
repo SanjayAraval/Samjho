@@ -20,6 +20,8 @@ data class RecordingState(
     val engine: EngineId,
     /** True until the recogniser is ready and the microphone is actually open. */
     val loading: Boolean = true,
+    /** How the engine is listening, e.g. "on-device". Shown so the mode is never hidden. */
+    val detail: String = "",
     val lines: List<String> = emptyList(),
     val partial: String = "",
     val error: String? = null,
@@ -71,7 +73,8 @@ class SamjhoViewModel(app: Application) : AndroidViewModel(app) {
         }
         state = state.copy(recording = RecordingState(language, id))
         engine.start(language, object : SpeechEngine.Listener {
-            override fun onListening() = updateRecording { it.copy(loading = false) }
+            override fun onListening(detail: String) =
+                updateRecording { it.copy(loading = false, detail = detail) }
 
             override fun onPartial(text: String) = updateRecording { it.copy(partial = text) }
 
@@ -91,7 +94,8 @@ class SamjhoViewModel(app: Application) : AndroidViewModel(app) {
             state = state.copy(recording = null)
         } else {
             val what = if (rec.language == Language.HINDI) "Hindi recording" else "English recording"
-            showResult(lines, "$what · ${rec.engine.label}")
+            val how = state.recording?.detail?.takeIf { it.isNotEmpty() }?.let { " ($it)" }.orEmpty()
+            showResult(lines, "$what · ${rec.engine.label}$how")
         }
     }
 

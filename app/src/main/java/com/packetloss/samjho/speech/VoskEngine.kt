@@ -78,7 +78,7 @@ class VoskEngine(context: Context) : SpeechEngine {
 
                     override fun onTimeout() = Unit
                 })
-                main.post { if (mine == session) listener.onListening() }
+                main.post { if (mine == session) listener.onListening("offline model") }
             } catch (t: Throwable) {
                 val message = t.message ?: t.javaClass.simpleName
                 SpeechLog.error(id, language, message)

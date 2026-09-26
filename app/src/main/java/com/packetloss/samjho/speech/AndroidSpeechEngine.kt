@@ -15,14 +15,15 @@ import com.packetloss.samjho.extract.Lexicon
 import com.packetloss.samjho.model.Language
 
 /**
- * The phone's own on-device speech recogniser, biased toward the medicine names in [Lexicon].
+ * The phone's own speech recogniser, biased toward the medicine names in [Lexicon].
  *
- * It is created with [SpeechRecognizer.createOnDeviceSpeechRecognizer], which by contract never
- * uses the network. EXTRA_PREFER_OFFLINE is also set, but on its own that is only a hint: the
- * ordinary recogniser may fall back to a server when an offline pack is missing, and this app's
- * lack of an INTERNET permission would not stop that, because the audio would leave from another
- * app's process. So if an on-device recogniser is not available, this engine reports itself
- * unavailable instead of quietly going online.
+ * It runs in one of two modes, and always says which:
+ *  - ON_DEVICE: [SpeechRecognizer.createOnDeviceSpeechRecognizer], which by contract never uses
+ *    the network. Preferred whenever the phone has one with the language installed.
+ *  - SYSTEM: the ordinary recogniser with EXTRA_PREFER_OFFLINE. That extra is only a hint: if the
+ *    offline pack is missing the recogniser may use a server, and this app having no INTERNET
+ *    permission would not stop it, because the audio leaves from another app's process. The mode
+ *    is therefore shown on screen and logged, never hidden.
  *
  * A recogniser ends after each utterance, so it is restarted on every result to capture a whole
  * consultation as many lines. Must be driven from the main thread.
@@ -31,6 +32,11 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
 
     override val id = EngineId.ANDROID
 
+    private enum class Mode(val label: String) {
+        ON_DEVICE("on-device"),
+        SYSTEM("system recogniser, prefers offline"),
+    }
+
     private val appContext = context.applicationContext
     private val main = Handler(Looper.getMainLooper())
 
@@ -38,20 +44,22 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
     private var listener: SpeechEngine.Listener? = null
     private var language = Language.ENGLISH
     private var intent: Intent? = null
+    private var mode = Mode.SYSTEM
 
     private var session = 0
     private var announced = false
     private var lastPartial = ""
     private var lineCount = 0
     private var errorStreak = 0
+    private var tagIndex = 0
 
-    override fun unavailableReason(language: Language): String? = when {
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ->
-            "On-device recognition needs Android 13 or newer. Pick Vosk in the speech setting."
-        !SpeechRecognizer.isOnDeviceRecognitionAvailable(appContext) ->
-            "This phone has no on-device speech recogniser. Pick Vosk in the speech setting."
-        else -> null
-    }
+    private fun onDeviceAvailable() =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            SpeechRecognizer.isOnDeviceRecognitionAvailable(appContext)
+
+    override fun unavailableReason(language: Language): String? =
+        if (onDeviceAvailable() || SpeechRecognizer.isRecognitionAvailable(appContext)) null
+        else "This phone has no speech recogniser. Pick Vosk in the speech setting."
 
     override fun start(language: Language, listener: SpeechEngine.Listener) {
         stopInternal()
@@ -62,23 +70,34 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
         lastPartial = ""
         lineCount = 0
         errorStreak = 0
+        tagIndex = 0
 
-        val tag = languageTag(language)
-        val recognitionIntent = buildIntent(tag)
-        intent = recognitionIntent
-        SpeechLog.started(id, language, "tag=$tag preferOffline=true onDevice=true hints=${Lexicon.speechHints().size}")
-
-        val r = SpeechRecognizer.createOnDeviceSpeechRecognizer(appContext)
-        recognizer = r
-        r.setRecognitionListener(callbacks(mine))
-        logInstalledLanguages(r, recognitionIntent)
-        r.startListening(recognitionIntent)
+        intent = buildIntent(languageTag(language))
+        open(mine, if (onDeviceAvailable()) Mode.ON_DEVICE else Mode.SYSTEM)
     }
 
     override fun stop(): String {
         val pending = lastPartial.trim()
         stopInternal()
         return pending
+    }
+
+    private fun open(mine: Int, wanted: Mode) {
+        mode = wanted
+        recognizer?.let { it.cancel(); it.destroy() }
+        val r = if (wanted == Mode.ON_DEVICE) {
+            SpeechRecognizer.createOnDeviceSpeechRecognizer(appContext)
+        } else {
+            SpeechRecognizer.createSpeechRecognizer(appContext)
+        }
+        recognizer = r
+        r.setRecognitionListener(callbacks(mine))
+        SpeechLog.started(
+            id, language,
+            "mode=${wanted.label} tag=${languageTag(language)} preferOffline=true hints=${Lexicon.speechHints().size}",
+        )
+        logInstalledLanguages(r, intent!!)
+        r.startListening(intent)
     }
 
     private fun stopInternal() {
@@ -102,17 +121,20 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
         putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, appContext.packageName)
         putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, PAUSE_MS)
         putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, PAUSE_MS)
-        putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList(Lexicon.speechHints()))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList(Lexicon.speechHints()))
+        }
     }
 
     /** Diagnostic only: which offline language packs the phone actually has. */
     private fun logInstalledLanguages(r: SpeechRecognizer, forIntent: Intent) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
         try {
             r.checkRecognitionSupport(forIntent, appContext.mainExecutor, object : RecognitionSupportCallback {
                 override fun onSupportResult(support: RecognitionSupport) {
                     SpeechLog.started(
                         id, language,
-                        "installed=${support.installedOnDeviceLanguages} " +
+                        "support[${mode.label}] installed=${support.installedOnDeviceLanguages} " +
                             "downloadable=${support.supportedOnDeviceLanguages} " +
                             "pending=${support.pendingOnDeviceLanguages}",
                     )
@@ -131,7 +153,7 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
         override fun onReadyForSpeech(params: Bundle?) {
             if (mine != session || announced) return
             announced = true
-            listener?.onListening()
+            listener?.onListening("${mode.label} · ${languageTag(language)}")
         }
 
         override fun onPartialResults(partialResults: Bundle?) {
@@ -147,7 +169,7 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
             lastPartial = ""
             val text = firstResult(results)?.trim().orEmpty()
             if (text.isNotEmpty()) {
-                SpeechLog.line(id, language, lineCount++, text)
+                SpeechLog.line(id, language, lineCount++, text, mode.label)
                 listener?.onLine(text)
             }
             restart(mine, 60)
@@ -155,12 +177,30 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
 
         override fun onError(error: Int) {
             if (mine != session) return
+            if (error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                SpeechLog.error(id, language, "recogniser error code=$error mode=${mode.label}")
+            }
             when (error) {
                 // Silence or nothing recognised is normal between sentences: just listen again.
                 SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> restart(mine, 60)
                 SpeechRecognizer.ERROR_RECOGNIZER_BUSY, SpeechRecognizer.ERROR_CLIENT -> {
                     if (++errorStreak > MAX_ERROR_STREAK) fail(mine, describe(error)) else restart(mine, 400)
                 }
+                // The service dropped our connection, usually because a recogniser was torn down a
+                // moment ago. A fresh recogniser after a pause normally reconnects.
+                SpeechRecognizer.ERROR_SERVER_DISCONNECTED ->
+                    if (++errorStreak > MAX_ERROR_STREAK) fail(mine, describe(error)) else reopen(mine, mode)
+                SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE ->
+                    if (mode == Mode.ON_DEVICE && SpeechRecognizer.isRecognitionAvailable(appContext)) {
+                        SpeechLog.error(id, language, "on-device has no ${languageTag(language)} model; switching to system recogniser")
+                        reopen(mine, Mode.SYSTEM)
+                    } else if (tagIndex < tags(language).lastIndex) {
+                        val from = languageTag(language)
+                        tagIndex++
+                        intent = buildIntent(languageTag(language))
+                        SpeechLog.error(id, language, "no offline $from model; falling back to ${languageTag(language)}")
+                        reopen(mine, Mode.SYSTEM)
+                    } else fail(mine, describe(error))
                 else -> fail(mine, describe(error))
             }
         }
@@ -170,6 +210,13 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
         override fun onBufferReceived(buffer: ByteArray?) = Unit
         override fun onEndOfSpeech() = Unit
         override fun onEvent(eventType: Int, params: Bundle?) = Unit
+    }
+
+    /** Swaps in a fresh recogniser after a pause, so the speech service can finish closing the old one. */
+    private fun reopen(mine: Int, wanted: Mode) {
+        recognizer?.let { it.cancel(); it.destroy() }
+        recognizer = null
+        main.postDelayed({ if (mine == session) open(mine, wanted) }, REOPEN_DELAY_MS)
     }
 
     private fun restart(mine: Int, delayMs: Long) {
@@ -186,7 +233,7 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
 
     private fun fail(mine: Int, message: String) {
         if (mine != session) return
-        SpeechLog.error(id, language, message)
+        SpeechLog.error(id, language, "mode=${mode.label} $message")
         listener?.onError(message)
     }
 
@@ -195,20 +242,28 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
 
     private fun describe(error: Int): String = when (error) {
         SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE ->
-            "The ${languageTag(language)} offline speech pack is not installed on this phone. " +
-                "Install it once in the Google speech settings, or pick Vosk."
+            "The ${languageTag(language)} speech pack is not available offline on this phone. Pick Vosk."
         SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission is missing."
         SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT, SpeechRecognizer.ERROR_SERVER,
         SpeechRecognizer.ERROR_SERVER_DISCONNECTED ->
-            "The recogniser wanted the network (error $error). Samjho stays offline, so pick Vosk."
+            "The recogniser needs an offline ${languageTag(language)} pack and has none (error $error). " +
+                "Samjho stays offline, so pick Vosk or install the pack in Google's voice settings."
         SpeechRecognizer.ERROR_TOO_MANY_REQUESTS -> "The speech service is rate limited (error $error)."
         else -> "Speech recognition failed (error $error)."
     }
 
-    private fun languageTag(language: Language) = if (language == Language.HINDI) "hi-IN" else "en-IN"
+    /**
+     * Languages to try in order. On the iQOO I2501 Google has an offline en-US model but no offline
+     * en-IN or hi-IN one, so English falls back to en-US; every fallback is logged.
+     */
+    private fun tags(language: Language) =
+        if (language == Language.HINDI) listOf("hi-IN") else listOf("en-IN", "en-US")
+
+    private fun languageTag(language: Language) = tags(language)[tagIndex.coerceAtMost(tags(language).lastIndex)]
 
     companion object {
         private const val PAUSE_MS = 1500L
         private const val MAX_ERROR_STREAK = 8
+        private const val REOPEN_DELAY_MS = 600L
     }
 }

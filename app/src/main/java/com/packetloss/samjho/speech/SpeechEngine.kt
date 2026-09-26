@@ -4,7 +4,7 @@ import android.util.Log
 import com.packetloss.samjho.model.Language
 
 enum class EngineId(val label: String) {
-    ANDROID("Android on-device"),
+    ANDROID("Android"),
     VOSK("Vosk"),
 }
 
@@ -30,7 +30,8 @@ interface SpeechEngine {
     fun stop(): String
 
     interface Listener {
-        fun onListening()
+        /** [detail] says how it is listening, e.g. "on-device", so the screen can show it honestly. */
+        fun onListening(detail: String)
         fun onPartial(text: String)
         fun onLine(text: String)
         fun onError(message: String)
@@ -45,8 +46,9 @@ object SpeechLog {
         Log.i(TAG, "engine=${engine.name} lang=$language START $detail".trim())
     }
 
-    fun line(engine: EngineId, language: Language, index: Int, text: String) {
-        Log.i(TAG, "engine=${engine.name} lang=$language line=${index + 1} text=\"$text\"")
+    fun line(engine: EngineId, language: Language, index: Int, text: String, mode: String = "") {
+        val how = if (mode.isEmpty()) "" else " mode=$mode"
+        Log.i(TAG, "engine=${engine.name}$how lang=$language line=${index + 1} text=\"$text\"")
     }
 
     fun error(engine: EngineId, language: Language, message: String) {

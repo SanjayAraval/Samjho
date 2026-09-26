@@ -176,7 +176,11 @@ object RuleExtractor {
 
         tokens.forEachIndexed { u, t ->
             if (t.normalized !in DOSAGE_FORMS) return@forEachIndexed
-            val candidate = neighbourBefore(tokens, u) ?: neighbourAfter(tokens, u) ?: return@forEachIndexed
+            // "tablet of X" names X after the form word; "X tablet" names it before. Without this,
+            // speech that mishears the word before ("egg 1 tablet of citrus") names the wrong one.
+            val namedAfter = tokens.getOrNull(u + 1)?.normalized == "of"
+            val candidate = (if (namedAfter) neighbourAfter(tokens, u) else neighbourBefore(tokens, u) ?: neighbourAfter(tokens, u))
+                ?: return@forEachIndexed
             val key = Lexicon.match(candidate.normalized)
                 ?: Lexicon.matchPhonetic(candidate.normalized)
                 ?: candidate.normalized
@@ -321,9 +325,15 @@ object RuleExtractor {
             "immediately|hospital|emergency|right away|straight away|urgent",
     )
 
+    // Speech recognition often drops the leading "if", so "go to the hospital immediately" must
+    // count on its own: an urgent word next to a hospital word is a warning whatever else is said.
+    private val URGENT = Regex("immediately|right away|straight away|urgent|तुरंत|तुरन्त|फौरन")
+    private val HOSPITAL = Regex("hospital|emergency|ambulance|अस्पताल|इमरजेंसी|एम्बुलेंस|आपातकाल")
+
     private fun looksLikeWarning(n: String): Boolean =
-        WARNING_ACTION.containsMatchIn(n) &&
-            (WARNING_CONDITION.containsMatchIn(n) || Regex("come back|वापस आ|दिखाने आ").containsMatchIn(n))
+        (WARNING_ACTION.containsMatchIn(n) &&
+            (WARNING_CONDITION.containsMatchIn(n) || Regex("come back|वापस आ|दिखाने आ").containsMatchIn(n))) ||
+            (URGENT.containsMatchIn(n) && HOSPITAL.containsMatchIn(n))
 
     // ---------------------------------------------------------------- avoid
 

@@ -96,6 +96,31 @@ class PhoneticTest {
     }
 
     @Test
+    fun longEverydayMedicalWordsNeverMatchEvenWithTheFirstLetterRelaxed() {
+        // The relaxed tier ignores the first consonant on 5+ consonant skeletons, so it is the one
+        // most exposed to coincidence: prove ordinary consultation vocabulary stays clear of it.
+        listOf(
+            "temperature", "medication", "prescription", "thermometer", "antibiotic", "stomach",
+            "breathing", "immediately", "appointment", "symptoms", "diagnosis", "injection",
+            "tomorrow", "afternoon", "vomiting", "dehydration", "pharmacist", "vaccination",
+            "morning", "evening", "hospital", "emergency", "medicine",
+        ).forEach { w -> assertNull("'$w' matched", Lexicon.matchPhonetic(Normalize.text(w))) }
+    }
+
+    @Test
+    fun aPluralOfARealMedicineStillMatches() {
+        assertEquals("paracetamol", Lexicon.matchPhonetic(Normalize.text("paracetamols")))
+    }
+
+    @Test
+    fun thePlainSpokenConsultationWordsInTheDemosFindNothingExtra() {
+        assertEquals(
+            emptyList<String>(),
+            keys("Please drink more water, take rest, and avoid the stomach infection risk in the evening."),
+        )
+    }
+
+    @Test
     fun friedFoodIsNotIron() {
         // "fried" is one letter from ferrous (frs) and "food" reads as a dosing word.
         assertEquals(emptyList<String>(), keys("Avoid cold water and fried food."))
