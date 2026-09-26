@@ -94,9 +94,13 @@ These are the product. Several are enforced by tests; do not weaken a test to ge
 - The phone locks, rotates and gets backgrounded by Office Kit; a live recording ends when Samjho is not
   in the foreground.
 - Wi-Fi has come back on inside airplane mode before, so the airplane setting alone proves nothing.
-- The phone's `fast_freezer` freezes Samjho about 10 s after the screen locks, and alarms set for a frozen app are
-  dropped (`dumpsys alarm` shows `Reason=frozen`; `logcat -b all` shows `am_app_frozen ... fast_freezer`). A reminder
-  therefore only fires while the phone is awake, unless Samjho is exempted from the phone's background limits.
+- The phone's `fast_freezer` freezes Samjho about 10-15 s after the screen locks (`logcat -b all` shows
+  `am_app_frozen ... fast_freezer`, then `am_app_unfrozen ... screen on`). Alarms due meanwhile are held, not lost
+  (`dumpsys alarm` lists them as `Reason=frozen`), and fire about a minute after the screen is next turned on: measured
+  due 04:12:39, screen on 04:13:24, fired 04:14:09. So a reminder does not sound while the phone is locked. Do not
+  force-stop the app in that window: it cancels the held alarms. `setAlarmClock` is no way round it: it throws without
+  SCHEDULE_EXACT_ALARM / USE_EXACT_ALARM. A stopped app gets no broadcasts, so open Samjho once before using the
+  debug receiver.
 - The `:llm` process is frozen by Android whenever the screen is off or Samjho is not in front, so the model
   only loads and answers while the phone is awake and unlocked with Samjho open. Tests need that.
 - Gemma is read from `/data/local/tmp/llm/` (or the app's external files dir `llm/`). On this phone CPU
