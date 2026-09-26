@@ -68,8 +68,9 @@ object RuleExtractor {
             if (found.isNotEmpty()) {
                 val attrs = attributesIn(n)
                 for (f in found) {
-                    val existing = medicines[f.key]
-                    medicines[f.key] = if (existing == null) {
+                    val slot = mergeKey(f)
+                    val existing = medicines[slot]
+                    medicines[slot] = if (existing == null) {
                         newMedicine(f, attrs, here)
                     } else {
                         val clearer = existing.basis != Basis.HEARD && f.basis == Basis.HEARD
@@ -98,6 +99,7 @@ object RuleExtractor {
             avoid = avoid,
             warnings = warnings,
             followUp = followUp,
+            dosingLines = lines.filter { hasDosing(it.text) }.map { it.index }.toSet(),
         )
     }
 
@@ -128,6 +130,17 @@ object RuleExtractor {
         Lexicon.exact(normalized)?.let { return it to Basis.HEARD }
         Lexicon.match(normalized)?.let { return it to Basis.SOUNDS_LIKE }
         return null
+    }
+
+    /**
+     * Repeat mentions of one medicine share a card, but a brand and its generic do not: "paracetamol
+     * three times a day" and "Dolo if the fever comes back" are separate instructions, and merging
+     * them would attach one's schedule to the other. Every generic spelling, in any script, and every
+     * inferred (sounds-like) mention count as the generic.
+     */
+    private fun mergeKey(f: Found): String {
+        val brand = if (f.basis == Basis.HEARD) Lexicon.brand(Normalize.text(f.name)) else null
+        return f.key + "/" + (brand ?: "generic")
     }
 
     private fun newMedicine(f: Found, attrs: Attributes, lines: List<Int>) = Medicine(

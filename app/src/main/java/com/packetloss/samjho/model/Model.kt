@@ -122,7 +122,26 @@ data class Extraction(
     val avoid: List<Note> = emptyList(),
     val warnings: List<Note> = emptyList(),
     val followUp: FollowUp? = null,
+    /** Lines whose words state dosing (a frequency, a time, a dose, food or a duration). */
+    val dosingLines: Set<Int> = emptySet(),
 ) {
+    /**
+     * Dosing the doctor gave that no active item cites, so it is not tied to any medicine (its name
+     * was misheard past recognition, or the patient dismissed the guess). Shown as the doctor's own
+     * line, so an instruction is never silently dropped and no medicine is guessed for it.
+     */
+    val unnamedDosing: List<TranscriptLine>
+        get() {
+            val cited = buildSet {
+                medicines.filterNot { it.isRejected }.forEach { addAll(it.sourceLines) }
+                diagnosis.forEach { addAll(it.sourceLines) }
+                avoid.forEach { addAll(it.sourceLines) }
+                warnings.forEach { addAll(it.sourceLines) }
+                followUp?.let { addAll(it.sourceLines) }
+            }
+            return lines.filter { it.index in dosingLines && it.index !in cited }
+        }
+
     fun quotes(indices: List<Int>): List<TranscriptLine> =
         indices.distinct().sorted().mapNotNull { i -> lines.getOrNull(i) }
 

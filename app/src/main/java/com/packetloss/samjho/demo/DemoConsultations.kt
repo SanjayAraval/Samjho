@@ -48,24 +48,24 @@ object DemoConsultations {
     )
 
     /**
-     * The English consult as the phone actually transcribed it offline, in airplane mode, from a
-     * real reading with the real drug names. Unedited: the mishearings ("thromison", "citrus in",
-     * "dollar 650", "crossing") are the point, since they show the confirm step at work.
+     * The English consult as the phone actually transcribed it offline (airplane mode, Wi-Fi and
+     * data off), read aloud with the real drug names. Unedited: "parasite mall", "thrombison" and
+     * "citrus in" are the point, since they show the confirm step, the unnamed-dosing line, and
+     * Dolo kept apart from paracetamol.
      */
     val ENGLISH_AS_HEARD = DemoConsultation(
         id = "en-as-heard",
         label = "English: as the phone heard it",
         language = Language.ENGLISH,
         lines = listOf(
-            "Take the paracetamol tablet three times a day after food for 5 days",
-            "and the thromison in the morning on an empty stomach for 3 days",
-            "egg 1 tablet of citrus in at night",
+            "You have a viral fever nothing to worry about",
+            "parasite mall three times a day after food for 5 days",
+            "Is it thrombison once a day in the morning on an empty stomach for 3 days",
+            "and one citrus in tablet at night before sleeping",
+            "Also Dolo 650 if the fever comes back",
             "avoid cold water and fried food",
-            "the fever goes above 102 go to the hospital immediately",
-            "Come back after 5 days",
-            "Also dollar 650",
-            "and crossing if the fever comes back",
-            "Bluetooth",
+            "If the fever goes above 102 go to the hospital immediately",
+            "Come back after 5 days for a checkup",
         ),
     )
 

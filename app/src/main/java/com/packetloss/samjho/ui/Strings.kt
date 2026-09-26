@@ -22,6 +22,12 @@ class Strings(private val language: Language) {
     val followUp = pick("अगली मुलाक़ात", "Next visit")
     val transcript = pick("पूरी बातचीत", "Full transcript")
 
+    val unnamedDosing = pick("खुराक सुनी, पर दवा का नाम साफ़ नहीं", "Dosing heard, medicine name unclear")
+    val unnamedDosingHint = pick(
+        "यह डॉक्टर की कही पंक्ति है। किस दवा के लिए है, यह डॉक्टर या दवा वाले से पूछें।",
+        "This is the doctor's line as heard. Ask your doctor or pharmacist which medicine it is for.",
+    )
+
     val notMentioned = pick("नहीं बताया गया", "Not mentioned")
     val askDoctor = pick(
         "डॉक्टर या दवा वाले से पूछें।",

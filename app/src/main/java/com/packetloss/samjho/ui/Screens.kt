@@ -259,6 +259,17 @@ fun ResultScreen(
                 }
             }
 
+            val unnamed = extraction.unnamedDosing
+            if (unnamed.isNotEmpty()) {
+                SectionTitle(t.unnamedDosing)
+                Panel(bg = AvoidTint) {
+                    unnamed.forEach { line ->
+                        Text("•  ${line.text}", fontSize = 17.sp, color = AvoidInk)
+                    }
+                    Text(t.unnamedDosingHint, fontSize = 14.sp, color = AvoidInk)
+                }
+            }
+
             if (extraction.avoid.isNotEmpty()) {
                 NoteSection(t.avoid, extraction.avoid, extraction, t, AvoidTint, AvoidInk)
             }

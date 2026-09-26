@@ -96,6 +96,32 @@ object Lexicon {
         return if (bestRank <= maxRank) keys.singleOrNull() else null
     }
 
+    /**
+     * Brand names that share a lexicon key with their generic (Dolo and Crocin are paracetamol).
+     * A brand is a different thing to say than the generic, and the doctor may give different
+     * instructions for each, so the extractor must not fold them into one card.
+     */
+    private val BRANDS: Map<String, List<String>> = mapOf(
+        "crocin" to listOf("crocin", "क्रोसिन"),
+        "dolo" to listOf("dolo", "डोलो"),
+        "calpol" to listOf("calpol", "कालपोल"),
+        "azithral" to listOf("azithral", "एजिथ्रल"),
+        "cetzine" to listOf("cetzine", "सेटजीन"),
+        "amoxyclav" to listOf("amoxyclav", "एमोक्सीक्लेव"),
+        "brufen" to listOf("brufen", "ब्रूफेन"),
+        "flagyl" to listOf("flagyl", "फ्लैजिल"),
+        "asthalin" to listOf("asthalin", "अस्थालिन"),
+        "pan" to listOf("pan", "पैन"),
+        "zincovit" to listOf("zincovit", "जिंकोविट"),
+    )
+
+    private val BRAND_BY_FORM: Map<String, String> = BRANDS.flatMap { (brand, forms) ->
+        forms.map { Normalize.text(it) to brand }
+    }.toMap()
+
+    /** The brand a spoken form belongs to, or null for a generic name (in any script). */
+    fun brand(normalizedToken: String): String? = BRAND_BY_FORM[normalizedToken]
+
     private val KEYS: Set<String> = ENTRIES.map { it.first }.toSet()
 
     /** True when [key] is one of the lexicon's medicines, rather than an unknown brand kept as spoken. */

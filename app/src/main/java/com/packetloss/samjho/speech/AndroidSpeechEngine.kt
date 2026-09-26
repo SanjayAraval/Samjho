@@ -244,17 +244,11 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
     private fun firstResult(bundle: Bundle?): String? =
         bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
 
-    /**
-     * The recogniser's whole N-best list, best first, with confidence where it gives one. A score
-     * below zero means "not provided" (some recognisers send -1), so it is dropped, not kept.
-     */
-    private fun hypothesesOf(bundle: Bundle?): List<Hypothesis> {
-        val texts = bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
-        val scores = bundle?.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)
-        return texts.mapIndexedNotNull { i, t ->
-            if (t.isBlank()) null else Hypothesis(t.trim(), scores?.getOrNull(i)?.takeIf { it >= 0f })
-        }
-    }
+    /** The recogniser's whole N-best list, best first; see [Hypotheses] for what is dropped and why. */
+    private fun hypothesesOf(bundle: Bundle?): List<Hypothesis> = Hypotheses.build(
+        bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty(),
+        bundle?.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES),
+    )
 
     private fun describe(error: Int): String = when (error) {
         SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE ->
