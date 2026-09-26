@@ -70,8 +70,8 @@ class LexiconIntegrityTest {
             "pantop" to "pantoprazole", "montek" to "montelukast", "montair" to "montelukast", "amoxil" to "amoxicillin",
             "augmentin" to "amoxicillin + clavulanic acid", "shelcal" to "calcium", "zincovit" to "zincovit", "telma" to "telmisartan",
             "ecosprin" to "aspirin", "glycomet" to "metformin", "dolo" to "paracetamol", "combiflam" to "ibuprofen + paracetamol",
-            "cetrizine" to "cetirizine", "allegra" to "fexofenadine", "omez" to "omeprazole", "rantac" to "ranitidine",
-            "liv-52" to "liv-52", "neurobion" to "vitamin b complex", "becosules" to "vitamin b complex",
+            "cetrizine" to "cetirizine", "allegra" to "fexofenadine", "rantac" to "ranitidine",
+            "neurobion" to "vitamin b complex", "becosules" to "vitamin b complex",
             "पैंटोप" to "pantoprazole", "मोंटेक" to "montelukast", "एमोक्सिल" to "amoxicillin", "ग्लाइकोमेट" to "metformin",
         )
         for ((form, key) in required) assertEquals("'$form'", key, Lexicon.exact(Normalize.text(form)))
@@ -87,8 +87,27 @@ class LexiconIntegrityTest {
     @Test
     fun theNamesLeftOutOnPurposeAreStillOut() {
         // Each collides with a real word or phrase (see the note above ENTRIES). Adding one back is a decision, not a data fix.
-        for (form in listOf("zyrtec", "pan-d", "pand", "digene", "ज़िर्टेक", "पैन-डी", "डिगेन")) {
+        for (form in listOf("zyrtec", "pan-d", "pand", "digene", "ज़िर्टेक", "पैन-डी", "डिगेन", "omez", "ओमेज़", "liv-52", "liv52", "लिव-52")) {
             assertNull("'$form' collides with everyday text", Lexicon.exact(Normalize.text(form)))
+        }
+    }
+
+    @Test
+    fun omezAndLiv52WereRemovedButTheirMedicinesCanStillBePickedByHand() {
+        assertTrue(Lexicon.isKey("liv-52"))
+        assertTrue(Lexicon.isKey("omeprazole"))
+        assertTrue("liv-52" in ScanSearch.filter("liv").map { it.key })
+        assertEquals("omeprazole", Lexicon.exact("omeprazole"))
+    }
+
+    @Test
+    fun wordsFromRealConsultationSpeechNeverBecomeAMedicineCard() {
+        // "always", "major", "music", "level", "lives" sounded like Liv-52 and Omez; they must not put a card on screen.
+        for (w in listOf("always", "major", "music", "level", "lives", "message", "measure", "allowed")) {
+            for (sentence in listOf("take it $w twice a day after food", "you must $w take it after food for five days")) {
+                val cards = RuleExtractor.extract(listOf(sentence)).medicines.map { it.key }
+                assertEquals("'$sentence' produced $cards", emptyList<String>(), cards)
+            }
         }
     }
 

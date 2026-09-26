@@ -23,6 +23,9 @@ object Lexicon {
      *  - Zyrtec: its consonants ("srtk") are exactly those of the Hindi phrase "से रात को" (at night).
      *  - Pan-D: one letter from "gonna do", a real Vosk mishearing. The plain form "pan" already existed.
      *  - Digene: one letter from "diagnosis" and "dosing".
+     *  - Omez and Liv-52 were removed by decision: their consonants ("ms", "lv") match ordinary words that occur in real
+     *    consultation speech ("major", "music", "always", "level"), which would put a false medicine card on screen. The
+     *    omeprazole key keeps its other spellings; liv-52 keeps only its key, so it stays in the list to pick by hand.
      * About forty generic names also have no spelling here, for the same reason: warfarin sounds like "vote for" (a real
      * Vosk mishearing), digoxin like "diagnosis", and trimetazidine, erythromycin and tobramycin would out-rank
      * azithromycin for the real "thrombison". Those medicines are still in the list the patient picks from.
@@ -36,7 +39,7 @@ object Lexicon {
         "amoxicillin" to listOf("amoxicillin", "एमोक्सिसिलिन", "अमोक्सिसिलिन", "amoxyclav", "एमोक्सीक्लेव", "एमोक्साइसिलिन", "amoxil", "एमोक्सिल", "अमोक्सिल", "नोवामोक्स", "mox"),
         "ibuprofen" to listOf("ibuprofen", "आइबुप्रोफेन", "इबुप्रोफेन", "brufen", "ब्रूफेन"),
         "pantoprazole" to listOf("pantoprazole", "पैंटोप्राजोल", "पैन्टोप्राजोल", "पंटोप्राजोल", "pan", "पैन", "pantoprazol", "pantaprazole", "पैंटाप्राज़ोल", "pantop", "पैंटोप", "पेंटोप"),
-        "omeprazole" to listOf("omeprazole", "ओमेप्राजोल", "ओमीप्राजोल", "omeprazol", "omez", "ओमेज़"),
+        "omeprazole" to listOf("omeprazole", "ओमेप्राजोल", "ओमीप्राजोल", "omeprazol"),
         "metformin" to listOf("metformin", "मेटफॉर्मिन", "मेटफार्मिन", "मेट्फोर्मिन", "metformine", "glycomet", "ग्लाइकोमेट", "ग्लायकोमेट", "glucophage", "ग्लुकोफाग", "riomet", "रियोमेट"),
         "amlodipine" to listOf("amlodipine", "एम्लोडिपिन", "अम्लोडिपिन", "amlodipin", "amlodac", "एम्लोडाक", "norvasc", "नोर्वास्क", "amlokind", "एम्लोकिन्ड"),
         "cefixime" to listOf("cefixime", "सेफिक्सिम", "सेफिक्साइम", "cefixim", "टैक्सिम-ओ", "टैक्सिमओ"),
@@ -184,9 +187,7 @@ object Lexicon {
         "isabgol" to listOf("isabgol", "इसाब्गोल"),
         "milk of magnesia + liquid paraffin" to listOf("cremaffin", "क्रेमाफिन"),
         "ursodeoxycholic acid" to listOf(),
-        "liv-52" to listOf(
-            "liv-52", "liv52", "लिव-52", "लिव52", "लिव 52", "लिव फिफ्टी टू"
-        ),
+        "liv-52" to listOf(),
         "silymarin" to listOf("silymarin", "सिलाइमारिन"),
         "rifaximin" to listOf(
             "rifaximin", "रिफाक्सिमिन", "rifagut", "रिफागुट", "क्सिफाक्सान"
@@ -525,7 +526,6 @@ object Lexicon {
         "pantop" to listOf("pantop", "पैंटोप", "पेंटोप"),
         "pantocid-dsr" to listOf("pantocid-dsr", "pantociddsr", "पैंटोसिड-डीएसआर", "पैंटोसिडडीएसआर"),
         "pantodac-dsr" to listOf("pantodac-dsr", "pantodacdsr", "पैंटोडेक-डीएसआर", "पैंटोडेकडीएसआर"),
-        "omez" to listOf("omez", "ओमेज़", "ओमेज"),
         "rabeloc-d" to listOf("rabeloc-d", "rabelocd", "रैबेलॉक-डी", "रैबेलॉकडी"),
         "lanzol" to listOf("lanzol", "लैंज़ोल"),
         "rantac" to listOf("rantac", "रैंटाक", "रैंटैक", "रेंटेक"),
@@ -542,8 +542,6 @@ object Lexicon {
         "duphalac" to listOf("duphalac", "डुफालाक"),
         "dulcolax" to listOf("dulcolax", "डुल्कोलाक्स"),
         "cremaffin" to listOf("cremaffin", "क्रेमाफिन"),
-        "liv-52" to listOf("liv-52", "liv52", "लिव-52", "लिव52", "लिव 52", "लिव फिफ्टी टू"),
-        "liv52" to listOf("liv52", "लिव52"),
         "rifagut" to listOf("rifagut", "रिफागुट"),
         "xifaxan" to listOf("क्सिफाक्सान"),
         "becosules" to listOf("becosules", "बेकोसुलेस", "बेकोसूल्स", "बीकोसूल्स", "बेकोसुल्स"),
