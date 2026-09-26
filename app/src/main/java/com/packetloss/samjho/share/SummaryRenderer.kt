@@ -20,7 +20,8 @@ import java.io.FileOutputStream
  */
 class SummaryRenderer(private val doc: SummaryDocument) {
 
-    private class Block(val height: Int, val gapAfter: Int, val draw: (Canvas) -> Unit)
+    /** [keepWithNext]: a heading, which must never be left alone at the foot of a PDF page. */
+    private class Block(val height: Int, val gapAfter: Int, val keepWithNext: Boolean = false, val draw: (Canvas) -> Unit)
 
     // ---------------------------------------------------------------- outputs
 
@@ -44,7 +45,10 @@ class SummaryRenderer(private val doc: SummaryDocument) {
         return bitmap
     }
 
-    /** A4 pages at 72 dpi. A block that does not fit the rest of a page starts the next one. */
+    /**
+     * A4 pages at 72 dpi. A block that does not fit the rest of a page starts the next one, and a heading
+     * moves with the card under it so a section title is never stranded at the bottom of a page.
+     */
     fun writePdf(file: File) {
         val pageW = 595
         val pageH = 842
@@ -56,8 +60,9 @@ class SummaryRenderer(private val doc: SummaryDocument) {
         var page = pdf.startPage(PdfDocument.PageInfo.Builder(pageW, pageH, pageNumber).create())
         var canvas = page.canvas
         var y = margin
-        for (b in blocks) {
-            if (y + b.height > pageH - margin && y > margin) {
+        for ((i, b) in blocks.withIndex()) {
+            val needed = if (b.keepWithNext && i + 1 < blocks.size) b.height + b.gapAfter + blocks[i + 1].height else b.height
+            if (y + needed > pageH - margin && y > margin) {
                 pdf.finishPage(page)
                 pageNumber++
                 page = pdf.startPage(PdfDocument.PageInfo.Builder(pageW, pageH, pageNumber).create())
@@ -105,7 +110,7 @@ class SummaryRenderer(private val doc: SummaryDocument) {
         val title = textLayout(doc.title, paint(26f, s, PRIMARY, bold = true), width)
         val date = textLayout(doc.dateLine, paint(13f, s, MUTED), width)
         val gap = (4 * s).toInt()
-        return Block(title.height + gap + date.height, (18 * s).toInt()) { c ->
+        return Block(title.height + gap + date.height, (18 * s).toInt(), keepWithNext = true) { c ->
             title.draw(c)
             c.save(); c.translate(0f, (title.height + gap).toFloat()); date.draw(c); c.restore()
         }
@@ -115,7 +120,7 @@ class SummaryRenderer(private val doc: SummaryDocument) {
         val color = accent(section.tone)
         val text = textLayout(section.title.uppercase(), paint(13f, s, color, bold = true), width - (12 * s).toInt())
         val bar = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
-        return Block(text.height, (7 * s).toInt()) { c ->
+        return Block(text.height, (7 * s).toInt(), keepWithNext = true) { c ->
             c.drawRoundRect(RectF(0f, 0f, 4 * s, text.height.toFloat()), 2 * s, 2 * s, bar)
             c.save(); c.translate(12 * s, 0f); text.draw(c); c.restore()
         }
