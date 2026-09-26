@@ -73,6 +73,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import com.packetloss.samjho.AiState
 import com.packetloss.samjho.extract.Lexicon
 import com.packetloss.samjho.model.Confirmation
 import com.packetloss.samjho.scan.ScanBasis
@@ -109,6 +110,8 @@ fun ScanScreen(
     onScanAgain: () -> Unit,
     /** Non-null when the scan came from a summary: merges the confirmed names into it. */
     onApply: (() -> Unit)?,
+    /** Where the language-model pass over the words the rules missed stands. */
+    ai: AiState,
     onBack: () -> Unit,
 ) {
     var picker by remember { mutableStateOf<Picker?>(null) }
@@ -123,7 +126,7 @@ fun ScanScreen(
             when (val stage = ui.stage) {
                 ScanStage.Camera -> CameraStage(onPhoto, onCameraError, onPickFromList = { picker = Picker.Manual })
                 ScanStage.Reading -> ReadingStage()
-                ScanStage.Results -> ResultsStage(ui, actions, onScanAgain, onApply, onOpenPicker = { picker = it })
+                ScanStage.Results -> ResultsStage(ui, ai, actions, onScanAgain, onApply, onOpenPicker = { picker = it })
                 is ScanStage.Failed -> FailedStage(stage.message, onScanAgain, onPickFromList = { picker = Picker.Manual })
             }
         }
@@ -315,13 +318,26 @@ private fun PickFromListButton(onClick: () -> Unit, modifier: Modifier = Modifie
 // ------------------------------------------------------------------ results
 
 @Composable
-private fun ResultsStage(ui: ScanUi, actions: ScanActions, onScanAgain: () -> Unit, onApply: (() -> Unit)?, onOpenPicker: (Picker) -> Unit) {
+private fun ResultsStage(ui: ScanUi, ai: AiState, actions: ScanActions, onScanAgain: () -> Unit, onApply: (() -> Unit)?, onOpenPicker: (Picker) -> Unit) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         val suggested = ui.items.count { it.basis != ScanBasis.PICKED }
-        Text("पर्चा स्कैन · Prescription scan", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "पर्चा स्कैन · Prescription scan",
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f),
+            )
+            when {
+                ai is AiState.Checking -> Pill("AI CHECKING…", AvoidTint, AvoidInk)
+                ai is AiState.Done && ai.added > 0 -> Pill("AI + RULES", OkTint, MaterialTheme.colorScheme.primary)
+            }
+        }
+        if (ai is AiState.Unavailable) Text("AI name repair is not available: ${ai.reason}", fontSize = 12.sp, color = Muted)
 
         if (ui.items.isEmpty()) {
             Panel(bg = AvoidTint) {
@@ -436,6 +452,7 @@ private fun basisLabel(basis: ScanBasis) = when (basis) {
     ScanBasis.EXACT -> "Exact name"
     ScanBasis.SPELLING -> "Close spelling"
     ScanBasis.SOUNDS_LIKE -> "Sounds similar"
+    ScanBasis.AI_MATCHED -> "AI matched"
     ScanBasis.PICKED -> "Picked by you"
 }
 

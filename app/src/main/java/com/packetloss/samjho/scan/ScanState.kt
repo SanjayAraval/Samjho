@@ -47,6 +47,18 @@ data class ScanUi(
         return copy(stage = ScanStage.Results, items = kept + fresh, read = read, millis = millis, nextId = id)
     }
 
+    /**
+     * The only way the language model adds to the scan: append, never overwrite. A name that is already listed
+     * (suggested, confirmed, rejected or picked by hand) is dropped rather than merged into it, and everything
+     * added starts unconfirmed like any other suggestion.
+     */
+    fun withAdded(additions: List<ScanItem>): ScanUi {
+        val have = items.map { it.key }.toMutableSet()
+        var id = nextId
+        val fresh = additions.filter { have.add(it.key) }.map { it.copy(id = id++) }
+        return if (fresh.isEmpty()) this else copy(items = items + fresh, nextId = id)
+    }
+
     fun confirm(id: Int) = update(id) { it.confirmed() }
 
     fun reject(id: Int) = update(id) { it.rejected() }

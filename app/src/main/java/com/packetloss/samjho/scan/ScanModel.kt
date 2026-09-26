@@ -13,6 +13,9 @@ enum class ScanBasis {
     /** A word the camera read only sounds like a known medicine, by its consonants. */
     SOUNDS_LIKE,
 
+    /** The on-device language model picked it from a short list of look-alike names for a word the rules missed. */
+    AI_MATCHED,
+
     /** The patient chose it from the list themselves. Nothing was read. */
     PICKED,
 }

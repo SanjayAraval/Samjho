@@ -29,6 +29,15 @@ object NameRepair {
      */
     const val MAX_DISTANCE = 0.4
 
+    /**
+     * Where the word being repaired came from, so the model is told the truth about it. The rest of the
+     * path (shortlist, one-word answer, strict parsing, add-only) is the same for both.
+     */
+    enum class Source(val what: String, val quoted: String, val resembles: String) {
+        SPEECH("a spoken", "Sentence", "sounds like"),
+        OCR("a printed or handwritten", "Text read from a photo of a prescription (it may contain letter mistakes)", "looks like"),
+    }
+
     /** A lexicon medicine offered for a line, and the spoken word it was chosen for. */
     data class Candidate(val key: String, val heard: String, val distance: Double)
 
@@ -73,23 +82,43 @@ object NameRepair {
         return best.values.sortedWith(compareBy({ it.distance }, { it.key })).take(MAX_CANDIDATES)
     }
 
-    fun prompt(target: Target): String = buildString {
-        appendLine("Match a spoken medicine name to a fixed list. Do not give medical advice.")
-        appendLine("Sentence: \"${target.line.text}\"")
+    fun prompt(target: Target): String = prompt(target.line.text, target.candidates, Source.SPEECH)
+
+    /** The one question the model is ever asked, for a spoken sentence or for text read off a photo. */
+    fun prompt(text: String, candidates: List<Candidate>, source: Source): String = buildString {
+        appendLine("Match ${source.what} medicine name to a fixed list. Do not give medical advice.")
+        appendLine("${source.quoted}: \"$text\"")
         appendLine("Candidates:")
-        target.candidates.forEach { appendLine("- ${it.key} (sounds like \"${it.heard}\")") }
+        candidates.forEach { appendLine("- ${it.key} (${source.resembles} \"${it.heard}\")") }
         appendLine("Answer with exactly one candidate name from the list, or $UNKNOWN.")
         append("Output only that one word and nothing else.")
+    }
+
+    /**
+     * Asks the model and returns the ONE shortlisted candidate it names, or null. Every layer that repairs a
+     * name goes through here: the model sees only [text] and the shortlist, a failure or a timeout is a null,
+     * and anything not on the shortlist is discarded, so a repair can only ever pick what the sounds already
+     * pointed to.
+     */
+    fun choose(llm: LlmEngine, text: String, candidates: List<Candidate>, source: Source): Candidate? {
+        val reply = try {
+            llm.complete(prompt(text, candidates, source))
+        } catch (_: Throwable) {
+            null
+        }
+        return parse(reply, candidates)
     }
 
     /**
      * The one candidate the reply names, or null. Strict on purpose: after trimming whitespace, quotes
      * and a trailing full stop, the WHOLE reply must equal a candidate (any case) or it is discarded.
      */
-    fun parse(reply: String?, target: Target): Candidate? {
+    fun parse(reply: String?, target: Target): Candidate? = parse(reply, target.candidates)
+
+    fun parse(reply: String?, candidates: List<Candidate>): Candidate? {
         val cleaned = reply.orEmpty().trim().trim('"', '\'', '`', '*').trimEnd('.').trim()
         if (cleaned.isEmpty() || cleaned.equals(UNKNOWN, ignoreCase = true)) return null
-        return target.candidates.firstOrNull { it.key.equals(cleaned, ignoreCase = true) }
+        return candidates.firstOrNull { it.key.equals(cleaned, ignoreCase = true) }
     }
 
     /**
@@ -99,12 +128,7 @@ object NameRepair {
     fun repair(extraction: Extraction, llm: LlmEngine): List<Medicine> {
         val out = LinkedHashMap<String, Medicine>()
         for (target in targets(extraction)) {
-            val reply = try {
-                llm.complete(prompt(target))
-            } catch (_: Throwable) {
-                null
-            }
-            val chosen = parse(reply, target) ?: continue
+            val chosen = choose(llm, target.line.text, target.candidates, Source.SPEECH) ?: continue
             if (chosen.key in out) continue
             out[chosen.key] = RuleExtractor.medicineOnLine(
                 line = target.line,

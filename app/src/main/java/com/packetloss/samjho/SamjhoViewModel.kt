@@ -24,6 +24,7 @@ import com.packetloss.samjho.model.Language
 import com.packetloss.samjho.model.Medicine
 import com.packetloss.samjho.model.Utterance
 import com.packetloss.samjho.scan.PaperMerge
+import com.packetloss.samjho.scan.ScanRepair
 import com.packetloss.samjho.scan.ScanMatcher
 import com.packetloss.samjho.scan.ScanStage
 import com.packetloss.samjho.scan.ScanUi
@@ -67,6 +68,8 @@ data class UiState(
     val llm: LlmStatus = LlmStatus.Idle,
     /** The prescription scan screen, or null when it is closed. */
     val scan: ScanUi? = null,
+    /** Where the language-model pass over the scanned words stands. The rules suggestions are on screen before it starts. */
+    val scanAi: AiState = AiState.Idle,
     /** (names confirmed, medicines added) by the last prescription merged into the summary on screen. */
     val paperApplied: Pair<Int, Int>? = null,
     val reading: Speaker.State = Speaker.State.Idle,
@@ -98,6 +101,9 @@ class SamjhoViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Bumped per result, so a slow model answer for a screen the patient already left is ignored. */
     private var resultId = 0
+
+    /** Bumped per photo, so a slow model answer for a page the patient has since re-scanned or left is ignored. */
+    private var scanRun = 0
 
     init {
         selectEngine(SpeechPrefs.engine(app), persist = false)
@@ -269,7 +275,8 @@ class SamjhoViewModel(app: Application) : AndroidViewModel(app) {
     fun openScan() {
         val forSummary = state.extraction != null
         Log.i(TextScanner.TAG, "scan opened forSummary=$forSummary")
-        state = state.copy(scan = ScanUi(forSummary = forSummary))
+        scanRun++
+        state = state.copy(scan = ScanUi(forSummary = forSummary), scanAi = AiState.Idle)
     }
 
     /**
@@ -290,34 +297,80 @@ class SamjhoViewModel(app: Application) : AndroidViewModel(app) {
 
     fun closeScan() {
         Log.i(TextScanner.TAG, "scan closed")
-        state = state.copy(scan = null)
+        scanRun++
+        state = state.copy(scan = null, scanAi = AiState.Idle)
     }
 
-    fun scanAgain() = updateScan { it.copy(stage = ScanStage.Camera) }
+    fun scanAgain() {
+        scanRun++
+        state = state.copy(scanAi = AiState.Idle)
+        updateScan { it.copy(stage = ScanStage.Camera) }
+    }
 
     /** Reads a photo on the phone and turns what it read into suggestions. The bitmap is never kept or saved. */
     fun scanPhoto(bitmap: Bitmap) {
         val start = System.nanoTime()
+        val run = ++scanRun
+        state = state.copy(scanAi = AiState.Idle)
         updateScan { it.reading() }
         scanner.read(bitmap) { result ->
             bitmap.recycle()
             result.fold(
-                onSuccess = { read ->
-                    val items = ScanMatcher.match(read.allLines())
-                    val millis = (System.nanoTime() - start) / 1_000_000
-                    // Counts and medicine keys only: what a prescription says is the patient's, not ours to log.
-                    Log.i(
-                        TextScanner.TAG,
-                        "scan: ${read.latin.size} latin lines, ${read.devanagari.size} devanagari lines, " +
-                            "${items.size} suggestions ${items.map { "${it.key}/${it.basis}" }} in $millis ms",
-                    )
-                    updateScan { it.withRead(read, items, millis) }
-                },
+                onSuccess = { read -> scanRead(run, start, read) },
                 onFailure = { e ->
                     Log.w(TextScanner.TAG, "scan failed: ${e.message}")
                     updateScan { it.failed(e.message ?: "The text reader failed.") }
                 },
             )
+        }
+    }
+
+    /**
+     * Everything after the text has been read: the rules suggest medicines at once, then the language model is
+     * asked about the words the rules missed. Kept apart from the camera so it is one path however text arrives.
+     */
+    internal fun scanRead(run: Int, startNanos: Long, read: com.packetloss.samjho.scan.OcrRead) {
+        val items = ScanMatcher.match(read.allLines())
+        val millis = (System.nanoTime() - startNanos) / 1_000_000
+        // Counts and medicine keys only: what a prescription says is the patient's, not ours to log.
+        Log.i(
+            TextScanner.TAG,
+            "scan: ${read.latin.size} latin lines, ${read.devanagari.size} devanagari lines, " +
+                "${items.size} suggestions ${items.map { "${it.key}/${it.basis}" }} in $millis ms",
+        )
+        updateScan { it.withRead(read, items, millis) }
+        repairScanWords(run, read)
+    }
+
+    /**
+     * Layer 2 for the scan: the same repair the speech path runs, on words the camera misread. It starts after the
+     * rules suggestions are already on screen, runs off the main thread, and can only append unconfirmed
+     * suggestions. If the model is missing, slow, crashes or says nonsense, the page stays exactly as it is.
+     */
+    private fun repairScanWords(run: Int, read: com.packetloss.samjho.scan.OcrRead) {
+        val reason = llm.unavailableReason()
+        if (reason != null) {
+            state = state.copy(scanAi = AiState.Unavailable(reason))
+            return
+        }
+        val listed = state.scan?.items ?: return
+        val targets = ScanRepair.targets(read.allLines(), listed)
+        if (targets.isEmpty()) {
+            state = state.copy(scanAi = AiState.Done(0))
+            return
+        }
+        Log.i(TextScanner.TAG, "repair: asking the model about ${targets.size} unread words")
+        state = state.copy(scanAi = AiState.Checking)
+        aiWorker.execute {
+            val added = ScanRepair.repair(targets, llm)
+            main.post {
+                if (run != scanRun) return@post
+                val ui = state.scan ?: return@post
+                val next = ui.withAdded(added)
+                val gained = next.items.size - ui.items.size
+                Log.i(TextScanner.TAG, "repair: ${added.size} valid answers, $gained added ${next.items.takeLast(gained).map { "${it.key}/${it.basis}" }}")
+                state = state.copy(scan = next, scanAi = AiState.Done(gained))
+            }
         }
     }
 

@@ -76,6 +76,13 @@ object ScanMatcher {
 
     private fun rank(h: Hit) = h.basis.ordinal * 10 + h.distance
 
+    /**
+     * True when the rules above already recognise this word (or joined pair) as a medicine. The language model
+     * is only asked about words that this says no to, so it never second-guesses a match the rules made.
+     */
+    internal fun isRecognised(display: String, normalized: String, joined: Boolean = false): Boolean =
+        classify(display, normalized, 0, joined) != null
+
     private fun classify(display: String, normalized: String, order: Int, joined: Boolean): Hit? {
         // A known spelling, at any length: "dolo", "iron", "ors" are short but unmistakable.
         Lexicon.exact(normalized)?.let { return Hit(display, it, ScanBasis.EXACT, 0.0, order) }
@@ -103,7 +110,7 @@ object ScanMatcher {
     }
 
     /** A token that could be a drug name: it starts with a letter and is mostly letters, not "500mg" or "1x3". */
-    private fun isWordLike(normalized: String): Boolean {
+    internal fun isWordLike(normalized: String): Boolean {
         if (normalized.isEmpty() || !normalized.first().isLetter()) return false
         val letters = normalized.count { it.isLetter() || Character.getType(it).let { t -> t == Character.NON_SPACING_MARK.toInt() || t == Character.COMBINING_SPACING_MARK.toInt() } }
         return letters >= 3 && letters * 10 >= normalized.length * 6

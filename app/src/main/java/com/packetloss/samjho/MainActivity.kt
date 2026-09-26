@@ -54,6 +54,7 @@ fun SamjhoApp(viewModel: SamjhoViewModel = viewModel()) {
                 ),
                 onScanAgain = viewModel::scanAgain,
                 onApply = if (scan.forSummary) viewModel::applyScanToSummary else null,
+                ai = state.scanAi,
                 onBack = viewModel::closeScan,
             )
         }
