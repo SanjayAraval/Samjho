@@ -9,7 +9,13 @@ data class TranscriptLine(val index: Int, val text: String)
 enum class Language { HINDI, ENGLISH }
 
 /** Rules run first. The on-device LLM may only ADD items, tagged [AI]; it never overwrites [RULES]. */
-enum class Provenance { RULES, AI }
+enum class Provenance {
+    RULES,
+    AI,
+
+    /** The medicine was not spoken at all: the patient confirmed it from the prescription paper. */
+    PRESCRIPTION,
+}
 
 enum class TimeOfDay { MORNING, AFTERNOON, EVENING, NIGHT }
 
@@ -43,9 +49,21 @@ enum class Basis {
 
     /** The on-device language model picked it from a short list of sound-alike candidates. */
     AI_MATCHED,
+
+    /** Not spoken at all: it is only on the prescription paper, so it has no dosing and cites no transcript line. */
+    FROM_PRESCRIPTION,
 }
 
 enum class Confirmation { NOT_NEEDED, UNCONFIRMED, CONFIRMED, REJECTED }
+
+/**
+ * Set when the patient confirmed this medicine's name from the prescription paper. The paper only ever
+ * supplies the NAME. Timings, food and duration still come from what the doctor said, never from the paper.
+ */
+data class PaperNote(
+    /** The words the camera read, exactly as read; null when the patient picked the name from the list. */
+    val readAs: String?,
+)
 
 data class Medicine(
     /** Exactly as heard (the doctor's or the recogniser's word), so the app restates rather than renames. */
@@ -68,6 +86,8 @@ data class Medicine(
     val candidates: List<String> = emptyList(),
     /** What the app first took this to be. Undo returns to it even after the patient chose another. */
     val suggested: String = key,
+    /** Present when the patient confirmed the name from the prescription. */
+    val paper: PaperNote? = null,
 ) {
     val missing: List<MissingField>
         get() = buildList {
@@ -91,6 +111,7 @@ data class Medicine(
     fun reopened() = copy(
         key = suggested,
         confirmation = if (basis == Basis.HEARD) Confirmation.NOT_NEEDED else Confirmation.UNCONFIRMED,
+        paper = null,
     )
 
     /** The patient picked a different medicine from the candidate list, which is itself a confirmation. */
@@ -142,6 +163,9 @@ data class Extraction(
 
     fun quotes(indices: List<Int>): List<TranscriptLine> =
         indices.distinct().sorted().mapNotNull { i -> lines.getOrNull(i) }
+
+    /** Removes one medicine, used to undo a paper-only card, which has no speech to fall back to. */
+    fun withoutMedicine(index: Int): Extraction = copy(medicines = medicines.filterIndexed { i, _ -> i != index })
 
     /** Replaces one medicine (e.g. after the patient answers Yes/No) without touching the others. */
     fun updateMedicine(index: Int, change: (Medicine) -> Medicine): Extraction =

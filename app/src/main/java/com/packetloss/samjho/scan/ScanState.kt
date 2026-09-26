@@ -21,6 +21,8 @@ sealed interface ScanStage {
  * this is where "nothing is auto-accepted" is enforced and tested.
  */
 data class ScanUi(
+    /** True when the scan was opened from a consultation summary, so its confirmed names can be merged into it. */
+    val forSummary: Boolean = false,
     val stage: ScanStage = ScanStage.Camera,
     val items: List<ScanItem> = emptyList(),
     /** What the camera read, kept so the patient (and we, on stage) can see nothing was invented. */

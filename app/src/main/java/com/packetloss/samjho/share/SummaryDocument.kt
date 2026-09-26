@@ -4,6 +4,7 @@ import com.packetloss.samjho.extract.Lexicon
 import com.packetloss.samjho.model.Basis
 import com.packetloss.samjho.model.Extraction
 import com.packetloss.samjho.model.Medicine
+import com.packetloss.samjho.scan.PaperMerge
 import com.packetloss.samjho.ui.Strings
 
 /** How a section is tinted when drawn. It carries meaning, so an image and a PDF agree on it. */
@@ -74,7 +75,9 @@ object SummaryBuilder {
                 )
             }
         }
-        return SummaryDocument(t.summaryTitle, dateLine, sections, t.summaryFooter)
+        // If any name came from the prescription, the footer says so rather than claiming it is all the doctor's words.
+        val footer = if (e.medicines.any { it.paper != null && !it.isRejected }) t.summaryFooterWithPrescription else t.summaryFooter
+        return SummaryDocument(t.summaryTitle, dateLine, sections, footer)
     }
 
     private fun medicine(m: Medicine, t: Strings): Entry {
@@ -86,9 +89,15 @@ object SummaryBuilder {
             m.durationDays?.let { add(t.durationDays(it)) }
         }
         val name = if (m.basis != Basis.HEARD) Lexicon.display(m.key) else m.name
-        val note = if (m.missing.isEmpty()) null
+        val missing = if (m.missing.isEmpty()) null
         else t.notMentioned + ": " + m.missing.joinToString(", ") { t.missing(it) }
-        return Entry(headline = name, details = details, note = note)
+        // A name settled from the prescription says so, and what was heard, so the reader knows where it came from.
+        val source = when {
+            m.basis == Basis.FROM_PRESCRIPTION -> t.fromPrescriptionNotSpoken
+            m.paper != null -> t.confirmedFromPrescriptionHeardAs(PaperMerge.heardAs(m))
+            else -> null
+        }
+        return Entry(headline = name, details = details, note = listOfNotNull(source, missing).joinToString("\n").ifEmpty { null })
     }
 
     private fun notConfirmed(m: Medicine, t: Strings): Entry {

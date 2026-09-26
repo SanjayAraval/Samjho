@@ -53,6 +53,7 @@ fun SamjhoApp(viewModel: SamjhoViewModel = viewModel()) {
                     pick = viewModel::scanPick,
                 ),
                 onScanAgain = viewModel::scanAgain,
+                onApply = if (scan.forSummary) viewModel::applyScanToSummary else null,
                 onBack = viewModel::closeScan,
             )
         }
@@ -67,6 +68,8 @@ fun SamjhoApp(viewModel: SamjhoViewModel = viewModel()) {
                 reading = state.reading,
                 onRead = viewModel::readAloud,
                 onStopReading = viewModel::stopReading,
+                onScanPrescription = viewModel::openScan,
+                paperApplied = state.paperApplied,
                 actions = MedicineActions(
                     confirm = viewModel::confirmMedicine,
                     reject = viewModel::rejectMedicine,

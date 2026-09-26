@@ -2,7 +2,9 @@ package com.packetloss.samjho.voice
 
 import com.packetloss.samjho.extract.Lexicon
 import com.packetloss.samjho.model.Extraction
+import com.packetloss.samjho.model.Basis
 import com.packetloss.samjho.model.Medicine
+import com.packetloss.samjho.scan.PaperMerge
 import com.packetloss.samjho.ui.Strings
 
 /**
@@ -63,14 +65,17 @@ object ReadAloudScript {
             m.durationDays?.let { add(t.durationDays(it)) }
         }
         val name = when {
+            m.basis == Basis.FROM_PRESCRIPTION -> t.readFromPrescriptionOnly(Lexicon.display(m.key))
+            m.paper != null -> t.readConfirmedFromPrescription(Lexicon.display(m.key), PaperMerge.heardAs(m))
             m.isUnconfirmed && Lexicon.isKey(m.key) -> t.readNotConfirmed(m.name, Lexicon.display(m.key))
             m.isUnconfirmed -> t.readNotConfirmedUnknown(m.name)
-            m.basis != com.packetloss.samjho.model.Basis.HEARD -> Lexicon.display(m.key)
+            m.basis != Basis.HEARD -> Lexicon.display(m.key)
             else -> m.name
         }
         val body = details.joinToString(", ")
         // The "not confirmed" phrase already ends in a full stop; a plain name gets a colon or a stop.
         val core = when {
+            m.basis == Basis.FROM_PRESCRIPTION -> name
             m.isUnconfirmed -> if (body.isEmpty()) name else "$name $body."
             body.isEmpty() -> "$name."
             else -> "$name: $body."

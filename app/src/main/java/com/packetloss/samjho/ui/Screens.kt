@@ -28,6 +28,7 @@ import com.packetloss.samjho.extract.Lexicon
 import com.packetloss.samjho.model.Basis
 import com.packetloss.samjho.model.Confirmation
 import com.packetloss.samjho.model.Provenance
+import com.packetloss.samjho.scan.PaperMerge
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -238,6 +239,10 @@ fun ResultScreen(
     reading: Speaker.State,
     onRead: () -> Unit,
     onStopReading: () -> Unit,
+    /** Opens the prescription scan, whose confirmed names are then merged into this summary. */
+    onScanPrescription: () -> Unit,
+    /** How many names the last applied prescription confirmed and how many medicines it added, if one was. */
+    paperApplied: Pair<Int, Int>?,
     actions: MedicineActions,
     onBack: () -> Unit,
 ) {
@@ -286,6 +291,16 @@ fun ResultScreen(
                 Text(reading.reason, fontSize = 14.sp, color = WarnInk)
             }
             shareError?.let { Text("${t.shareFailed} $it", fontSize = 14.sp, color = WarnInk) }
+
+            // The next step in the story: the doctor's voice gave the instructions, the paper gives the names.
+            Panel(bg = OkTint) {
+                Text("📷  ${t.scanPrescription}", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Text(t.scanPrescriptionHint, fontSize = 14.sp, color = Ink)
+                paperApplied?.let { (named, added) ->
+                    Text("✓ ${t.paperApplied(named, added)}", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
+                }
+                Button(onClick = onScanPrescription, shape = RoundedCornerShape(12.dp)) { Text(t.scanPrescription, fontSize = 16.sp) }
+            }
 
             if (choosingShare) {
                 val pending = extraction.medicines.count { it.isUnconfirmed }
@@ -396,6 +411,8 @@ fun ResultScreen(
 private fun MedicineCard(index: Int, m: Medicine, extraction: Extraction, t: Strings, actions: MedicineActions) {
     var choosing by remember { mutableStateOf(false) }
     val inferred = m.basis != Basis.HEARD
+    val paperOnly = m.basis == Basis.FROM_PRESCRIPTION
+    val fromPaper = m.paper != null && !paperOnly
     val known = Lexicon.isKey(m.key)
     // A word next to "tablet" that is not a known medicine is unconfirmed too, without "Possibly: X".
     val showsStatus = inferred || m.confirmation != Confirmation.NOT_NEEDED
@@ -417,12 +434,26 @@ private fun MedicineCard(index: Int, m: Medicine, extraction: Extraction, t: Str
         if (showsStatus) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (m.isUnconfirmed) Pill(t.unconfirmed, WarnTint, WarnInk) else Pill(t.confirmed, OkTint, primary)
-                if (inferred) Pill(t.basis(m.basis, m.hypothesis), Color(0xFFEDEFF2), Muted)
+                when {
+                    paperOnly -> Pill(t.fromPrescriptionNotSpoken, OkTint, primary)
+                    fromPaper -> Pill(t.confirmedFromPrescription, OkTint, primary)
+                    inferred -> Pill(t.basis(m.basis, m.hypothesis), Color(0xFFEDEFF2), Muted)
+                }
                 if (m.provenance == Provenance.AI) Pill("AI", Color(0xFFEDEFF2), Muted)
             }
         }
 
         when {
+            // The paper settled the name, so the card shows it, and still shows what was heard.
+            paperOnly -> {
+                Text(Lexicon.display(m.key), fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                m.paper?.readAs?.let { Text("${t.cameraRead} “$it”", fontSize = 14.sp, color = Muted) }
+            }
+            fromPaper -> {
+                Text(Lexicon.display(m.key), fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                // The pill above already says "confirmed from prescription"; this line adds what was heard.
+                PaperMerge.heardAs(m)?.let { Text("${t.heardAs} “$it”", fontSize = 14.sp, color = Muted) }
+            }
             m.isUnconfirmed -> {
                 Text("${t.heardAs} “${m.name}”", fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 if (known) Text("${t.possibly}: ${Lexicon.display(m.key)}", fontSize = 17.sp, color = AvoidInk)

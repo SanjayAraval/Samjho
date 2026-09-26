@@ -16,11 +16,14 @@ import com.packetloss.samjho.llm.LlmEngine
 import com.packetloss.samjho.llm.LlmEngines
 import com.packetloss.samjho.llm.LlmStatus
 import com.packetloss.samjho.llm.LlmStatusSource
+import com.packetloss.samjho.model.Basis
+import com.packetloss.samjho.model.Confirmation
 import com.packetloss.samjho.model.Extraction
 import com.packetloss.samjho.model.Hypothesis
 import com.packetloss.samjho.model.Language
 import com.packetloss.samjho.model.Medicine
 import com.packetloss.samjho.model.Utterance
+import com.packetloss.samjho.scan.PaperMerge
 import com.packetloss.samjho.scan.ScanMatcher
 import com.packetloss.samjho.scan.ScanStage
 import com.packetloss.samjho.scan.ScanUi
@@ -64,6 +67,8 @@ data class UiState(
     val llm: LlmStatus = LlmStatus.Idle,
     /** The prescription scan screen, or null when it is closed. */
     val scan: ScanUi? = null,
+    /** (names confirmed, medicines added) by the last prescription merged into the summary on screen. */
+    val paperApplied: Pair<Int, Int>? = null,
     val reading: Speaker.State = Speaker.State.Idle,
     val extraction: Extraction? = null,
     /** How long the deterministic pass took. Shown on screen: the budget is 1-2 seconds. */
@@ -157,7 +162,7 @@ class SamjhoViewModel(app: Application) : AndroidViewModel(app) {
 
     fun back() {
         speaker.stop()
-        state = state.copy(extraction = null, recording = null, ruleMillis = 0, sourceLabel = "", reading = Speaker.State.Idle)
+        state = state.copy(extraction = null, recording = null, ruleMillis = 0, sourceLabel = "", reading = Speaker.State.Idle, paperApplied = null)
     }
 
     /** Reads the result on screen aloud, exactly as shown, using only an offline voice. */
@@ -174,7 +179,17 @@ class SamjhoViewModel(app: Application) : AndroidViewModel(app) {
 
     fun rejectMedicine(index: Int) = decide(index, "reject") { it.rejected() }
 
-    fun undoMedicine(index: Int) = decide(index, "undo") { it.reopened() }
+    fun undoMedicine(index: Int) {
+        val current = state.extraction ?: return
+        val m = current.medicines.getOrNull(index) ?: return
+        // A medicine that exists only on the paper has no speech to fall back to, so undoing it removes it.
+        if (m.basis == Basis.FROM_PRESCRIPTION) {
+            Log.i(NAMES, "decision=undo-paper-only key=${m.key}")
+            state = state.copy(extraction = current.withoutMedicine(index))
+        } else {
+            decide(index, "undo") { it.reopened() }
+        }
+    }
 
     fun chooseMedicine(index: Int, key: String) = decide(index, "choose=$key") { it.choosing(key) }
 
@@ -197,6 +212,7 @@ class SamjhoViewModel(app: Application) : AndroidViewModel(app) {
             sourceLabel = label,
             recording = null,
             ai = AiState.Idle,
+            paperApplied = null,
         )
         logMedicines("rules", extraction)
         repairNames(mine, extraction)
@@ -249,9 +265,27 @@ class SamjhoViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------------------------------------------------------- prescription scan
 
+    /** From the home screen this is a stand-alone scan; from a summary its confirmed names can be merged into it. */
     fun openScan() {
-        Log.i(TextScanner.TAG, "scan opened")
-        state = state.copy(scan = ScanUi())
+        val forSummary = state.extraction != null
+        Log.i(TextScanner.TAG, "scan opened forSummary=$forSummary")
+        state = state.copy(scan = ScanUi(forSummary = forSummary))
+    }
+
+    /**
+     * Merges the medicine names the patient confirmed from the paper into the summary. The paper supplies
+     * names only; dosing stays what the doctor said. Nothing is removed and nothing unconfirmed is used.
+     */
+    fun applyScanToSummary() {
+        val ui = state.scan ?: return
+        val summary = state.extraction ?: return
+        val paper = ui.items.filter { it.confirmation == Confirmation.CONFIRMED }
+        val merged = PaperMerge.merge(summary, paper)
+        val named = merged.changes.count { it.kind != PaperMerge.Kind.PAPER_ONLY }
+        val added = merged.count(PaperMerge.Kind.PAPER_ONLY)
+        Log.i(TextScanner.TAG, "merge: ${merged.changes.map { "${it.key}/${it.kind}" }}")
+        logMedicines("after-paper", merged.extraction)
+        state = state.copy(extraction = merged.extraction, scan = null, paperApplied = named to added)
     }
 
     fun closeScan() {

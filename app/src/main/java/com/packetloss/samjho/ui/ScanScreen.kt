@@ -107,6 +107,8 @@ fun ScanScreen(
     onCameraError: (String) -> Unit,
     actions: ScanActions,
     onScanAgain: () -> Unit,
+    /** Non-null when the scan came from a summary: merges the confirmed names into it. */
+    onApply: (() -> Unit)?,
     onBack: () -> Unit,
 ) {
     var picker by remember { mutableStateOf<Picker?>(null) }
@@ -121,7 +123,7 @@ fun ScanScreen(
             when (val stage = ui.stage) {
                 ScanStage.Camera -> CameraStage(onPhoto, onCameraError, onPickFromList = { picker = Picker.Manual })
                 ScanStage.Reading -> ReadingStage()
-                ScanStage.Results -> ResultsStage(ui, actions, onScanAgain, onOpenPicker = { picker = it })
+                ScanStage.Results -> ResultsStage(ui, actions, onScanAgain, onApply, onOpenPicker = { picker = it })
                 is ScanStage.Failed -> FailedStage(stage.message, onScanAgain, onPickFromList = { picker = Picker.Manual })
             }
         }
@@ -313,7 +315,7 @@ private fun PickFromListButton(onClick: () -> Unit, modifier: Modifier = Modifie
 // ------------------------------------------------------------------ results
 
 @Composable
-private fun ResultsStage(ui: ScanUi, actions: ScanActions, onScanAgain: () -> Unit, onOpenPicker: (Picker) -> Unit) {
+private fun ResultsStage(ui: ScanUi, actions: ScanActions, onScanAgain: () -> Unit, onApply: (() -> Unit)?, onOpenPicker: (Picker) -> Unit) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -340,6 +342,28 @@ private fun ResultsStage(ui: ScanUi, actions: ScanActions, onScanAgain: () -> Un
 
         ui.items.forEach { item ->
             ScanCard(item, actions, onChooseAnother = { onOpenPicker(Picker.Another(item.id, item.candidates)) })
+        }
+
+        if (onApply != null) {
+            // Only names the patient confirmed go into the summary. The paper never supplies timings.
+            val confirmed = ui.items.count { it.confirmation == Confirmation.CONFIRMED }
+            Button(
+                onClick = onApply,
+                enabled = confirmed > 0,
+                modifier = Modifier.fillMaxWidth().height(58.dp),
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                Text(
+                    if (confirmed > 0) "सारांश में जोड़ें · Use $confirmed confirmed in the summary" else "Confirm a medicine to use it in the summary",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+            Text(
+                "The paper gives the names. Timings, food and days stay exactly as the doctor said them.",
+                fontSize = 13.sp,
+                color = Muted,
+            )
         }
 
         Button(

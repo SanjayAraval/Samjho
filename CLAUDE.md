@@ -11,11 +11,16 @@ These are the product. Several are enforced by tests; do not weaken a test to ge
    "you should", no drug information from our own knowledge. Read-aloud and the shared summary follow it too.
 2. **Every item cites a transcript line.** Each medicine, note, warning and follow-up carries the line
    indices it came from, and the UI can show them ("Show the doctor's words"). Anything not said is
-   shown as "not mentioned", never guessed.
+   shown as "not mentioned", never guessed. The one exception is a medicine that exists only on a scanned
+   prescription: it has no transcript line, is marked `FROM_PRESCRIPTION` ("From prescription, not spoken"), cites
+   the paper (`Medicine.paper`), and has no dosing at all. Timings, food and duration come only from the doctor's
+   words, never from the paper.
 3. **Nothing is confirmed without the patient.** An inferred medicine name (sounds like, alternative
    hearing, AI match, or an unknown word beside "tablet") is created `UNCONFIRMED`, shows the raw heard
    word, and only the patient's Yes / Choose another confirms it. No code path may create a `CONFIRMED`
-   medicine. A guess is never spoken or shared as a fact.
+   medicine. A guess is never spoken or shared as a fact. `PaperMerge` only uses scan items the patient
+   confirmed themselves, never overrides a card the patient already answered or a name the doctor said outright,
+   and only replaces a guess when the paper explains the heard word better than the guess did.
 4. **No INTERNET permission, ever.** The manifest strips it (`tools:node="remove"`). After adding or
    upgrading any dependency, check the packaged APK:
    `aapt2 dump permissions app-debug.apk` must list `RECORD_AUDIO`, `CAMERA` (prescription scan) and
@@ -66,7 +71,8 @@ These are the product. Several are enforced by tests; do not weaken a test to ge
   `voice/` offline read-aloud. `share/` image and PDF summary for the share sheet.
 - `scan/` prescription scan: `TextScanner` (bundled ML Kit, Latin + Devanagari, on the phone), `ScanMatcher`
   (reuses `Lexicon`/`Phonetic`, joins stricter than single words), `ScanSearch` (the full manual list),
-  `ScanUi` (every change is the patient's tap; a rescan keeps their decisions). Photo stays in memory.
+  `ScanUi` (every change is the patient's tap; a rescan keeps their decisions), `PaperMerge` (paper names into
+  the consultation summary). Photo stays in memory.
 - `ui/` Compose screens and bilingual `Strings`; `SamjhoViewModel` holds the state.
 
 ## Device facts that bite
