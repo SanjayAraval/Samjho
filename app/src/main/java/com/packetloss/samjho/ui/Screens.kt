@@ -10,6 +10,8 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import com.packetloss.samjho.model.Language
+import com.packetloss.samjho.speech.EngineId
+import androidx.compose.material3.FilterChip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -53,7 +55,9 @@ import com.packetloss.samjho.model.Note
 
 @Composable
 fun HomeScreen(
-    bundledModels: Set<Language>,
+    engine: EngineId,
+    unavailable: Map<Language, String>,
+    onSelectEngine: (EngineId) -> Unit,
     onRunDemo: (DemoConsultation) -> Unit,
     onRecord: (Language) -> Unit,
 ) {
@@ -120,18 +124,22 @@ fun HomeScreen(
                 )
             }
             Spacer(Modifier.height(8.dp))
-            val recordable = Language.entries.filter { it in bundledModels }
-            if (recordable.isEmpty()) {
-                Text(
-                    "Speech models are not installed in this build.",
-                    fontSize = 14.sp,
-                    color = WarnInk,
-                )
+            Text("बोली पहचान · Speech engine", fontSize = 13.sp, color = Muted)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                EngineId.entries.forEach { id ->
+                    FilterChip(
+                        selected = id == engine,
+                        onClick = { onSelectEngine(id) },
+                        label = { Text(id.label, fontSize = 14.sp) },
+                    )
+                }
             }
-            recordable.forEach { lang ->
+            Spacer(Modifier.height(10.dp))
+            Language.entries.forEach { lang ->
+                val reason = unavailable[lang]
                 Button(
                     onClick = { record(lang) },
-                    enabled = consent,
+                    enabled = consent && reason == null,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(58.dp),
@@ -142,6 +150,9 @@ fun HomeScreen(
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Medium,
                     )
+                }
+                if (reason != null) {
+                    Text(reason, fontSize = 13.sp, color = WarnInk, modifier = Modifier.padding(top = 4.dp))
                 }
                 Spacer(Modifier.height(10.dp))
             }

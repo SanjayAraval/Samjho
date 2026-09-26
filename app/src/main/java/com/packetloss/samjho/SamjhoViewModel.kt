@@ -9,12 +9,16 @@ import com.packetloss.samjho.demo.DemoConsultation
 import com.packetloss.samjho.extract.RuleExtractor
 import com.packetloss.samjho.model.Extraction
 import com.packetloss.samjho.model.Language
-import com.packetloss.samjho.speech.ModelInstaller
-import com.packetloss.samjho.speech.Transcriber
+import com.packetloss.samjho.speech.AndroidSpeechEngine
+import com.packetloss.samjho.speech.EngineId
+import com.packetloss.samjho.speech.SpeechEngine
+import com.packetloss.samjho.speech.SpeechPrefs
+import com.packetloss.samjho.speech.VoskEngine
 
 data class RecordingState(
     val language: Language,
-    /** True until the model is loaded and the microphone is actually open. */
+    val engine: EngineId,
+    /** True until the recogniser is ready and the microphone is actually open. */
     val loading: Boolean = true,
     val lines: List<String> = emptyList(),
     val partial: String = "",
@@ -27,27 +31,46 @@ data class UiState(
     val ruleMillis: Long = 0,
     val sourceLabel: String = "",
     val recording: RecordingState? = null,
-    val bundledModels: Set<Language> = emptySet(),
+    val engine: EngineId = SpeechPrefs.DEFAULT,
+    /** Why the selected engine cannot record a language right now; absent means it can. */
+    val unavailable: Map<Language, String> = emptyMap(),
 )
 
 class SamjhoViewModel(app: Application) : AndroidViewModel(app) {
 
-    var state by mutableStateOf(UiState(bundledModels = detectBundledModels()))
+    private val engines: Map<EngineId, SpeechEngine> = mapOf(
+        EngineId.ANDROID to AndroidSpeechEngine(app),
+        EngineId.VOSK to VoskEngine(app),
+    )
+
+    var state by mutableStateOf(UiState())
         private set
 
-    private val transcriber = Transcriber(app)
+    init {
+        selectEngine(SpeechPrefs.engine(app), persist = false)
+    }
 
-    private fun detectBundledModels(): Set<Language> = buildSet {
-        val ctx = getApplication<Application>()
-        if (ModelInstaller.isBundled(ctx, assetDir(Language.HINDI))) add(Language.HINDI)
-        if (ModelInstaller.isBundled(ctx, assetDir(Language.ENGLISH))) add(Language.ENGLISH)
+    fun selectEngine(id: EngineId, persist: Boolean = true) {
+        if (persist) SpeechPrefs.setEngine(getApplication(), id)
+        val engine = engines.getValue(id)
+        state = state.copy(
+            engine = id,
+            unavailable = Language.entries.mapNotNull { l -> engine.unavailableReason(l)?.let { l to it } }.toMap(),
+        )
     }
 
     fun runDemo(demo: DemoConsultation) = showResult(demo.lines, demo.label)
 
     fun startRecording(language: Language) {
-        state = state.copy(recording = RecordingState(language))
-        transcriber.start(assetDir(language), object : Transcriber.Listener {
+        val id = state.engine
+        val engine = engines.getValue(id)
+        val blocked = engine.unavailableReason(language)
+        if (blocked != null) {
+            state = state.copy(recording = RecordingState(language, id, loading = false, error = blocked))
+            return
+        }
+        state = state.copy(recording = RecordingState(language, id))
+        engine.start(language, object : SpeechEngine.Listener {
             override fun onListening() = updateRecording { it.copy(loading = false) }
 
             override fun onPartial(text: String) = updateRecording { it.copy(partial = text) }
@@ -62,17 +85,18 @@ class SamjhoViewModel(app: Application) : AndroidViewModel(app) {
 
     fun stopRecording() {
         val rec = state.recording ?: return
-        val pending = transcriber.stop()
+        val pending = engines.getValue(rec.engine).stop()
         val lines = if (pending.isNotEmpty()) rec.lines + pending else rec.lines
         if (lines.isEmpty()) {
             state = state.copy(recording = null)
         } else {
-            showResult(lines, if (rec.language == Language.HINDI) "हिंदी रिकॉर्डिंग" else "English recording")
+            val what = if (rec.language == Language.HINDI) "Hindi recording" else "English recording"
+            showResult(lines, "$what · ${rec.engine.label}")
         }
     }
 
     fun cancelRecording() {
-        transcriber.stop()
+        state.recording?.let { engines.getValue(it.engine).stop() }
         state = state.copy(recording = null)
     }
 
@@ -98,11 +122,6 @@ class SamjhoViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
-        transcriber.stop()
-    }
-
-    companion object {
-        fun assetDir(language: Language) =
-            if (language == Language.HINDI) "model-hi" else "model-en-in"
+        engines.values.forEach { it.stop() }
     }
 }

@@ -50,6 +50,8 @@ fun RecordScreen(
                     fontWeight = FontWeight.Bold,
                     color = if (recording.error == null) MaterialTheme.colorScheme.primary else WarnInk,
                 )
+                Spacer(Modifier.weight(1f))
+                Pill(recording.engine.label, OkTint, MaterialTheme.colorScheme.primary)
             }
 
             when {

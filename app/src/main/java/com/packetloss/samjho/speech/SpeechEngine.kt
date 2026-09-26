@@ -1,0 +1,55 @@
+package com.packetloss.samjho.speech
+
+import android.util.Log
+import com.packetloss.samjho.model.Language
+
+enum class EngineId(val label: String) {
+    ANDROID("Android on-device"),
+    VOSK("Vosk"),
+}
+
+/**
+ * A microphone-to-transcript-lines source. Each pause in speech closes one utterance, and each
+ * utterance becomes one transcript line, which is what every extracted item later cites.
+ *
+ * All [Listener] callbacks arrive on the main thread.
+ */
+interface SpeechEngine {
+
+    val id: EngineId
+
+    /** Null when this engine can transcribe [language] right now; otherwise a reason to show. */
+    fun unavailableReason(language: Language): String?
+
+    fun start(language: Language, listener: Listener)
+
+    /**
+     * Stops listening and returns any words still in flight, so the last sentence spoken before
+     * stop is not lost.
+     */
+    fun stop(): String
+
+    interface Listener {
+        fun onListening()
+        fun onPartial(text: String)
+        fun onLine(text: String)
+        fun onError(message: String)
+    }
+}
+
+/** One line per finished transcript line, so a logcat run shows which engine heard what. */
+object SpeechLog {
+    const val TAG = "SamjhoSpeech"
+
+    fun started(engine: EngineId, language: Language, detail: String = "") {
+        Log.i(TAG, "engine=${engine.name} lang=$language START $detail".trim())
+    }
+
+    fun line(engine: EngineId, language: Language, index: Int, text: String) {
+        Log.i(TAG, "engine=${engine.name} lang=$language line=${index + 1} text=\"$text\"")
+    }
+
+    fun error(engine: EngineId, language: Language, message: String) {
+        Log.w(TAG, "engine=${engine.name} lang=$language ERROR $message")
+    }
+}

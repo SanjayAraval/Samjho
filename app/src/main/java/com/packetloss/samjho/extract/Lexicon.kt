@@ -47,6 +47,12 @@ object Lexicon {
         "zincovit" to listOf("zincovit", "जिंकोविट", "zinc", "जिंक"),
     )
 
+    /**
+     * Medicine names in every spelling above, for a speech engine that accepts biasing: the words
+     * the doctor is likely to say, so the recogniser prefers them over sound-alike everyday words.
+     */
+    fun speechHints(): List<String> = ENTRIES.flatMap { it.second }.distinct()
+
     private data class Entry(val key: String, val form: String)
 
     private val BY_FORM: Map<String, String> = buildMap {

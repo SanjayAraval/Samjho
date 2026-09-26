@@ -43,7 +43,9 @@ fun SamjhoApp(viewModel: SamjhoViewModel = viewModel()) {
             )
         }
         else -> HomeScreen(
-            bundledModels = state.bundledModels,
+            engine = state.engine,
+            unavailable = state.unavailable,
+            onSelectEngine = { viewModel.selectEngine(it) },
             onRunDemo = viewModel::runDemo,
             onRecord = viewModel::startRecording,
         )

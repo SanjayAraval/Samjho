@@ -3,6 +3,7 @@ package com.packetloss.samjho.speech
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import com.packetloss.samjho.model.Language
 import org.json.JSONObject
 import org.vosk.Model
 import org.vosk.Recognizer
@@ -11,19 +12,13 @@ import org.vosk.android.SpeechService
 import java.util.concurrent.Executors
 
 /**
- * Offline microphone transcription. Each pause in speech closes one utterance, and each
- * utterance becomes one transcript line, which is what every extracted item later cites.
- *
- * All callbacks arrive on the main thread.
+ * Offline transcription with bundled Vosk models. Works on any Android version and needs nothing
+ * from the OS, but its small models only know their fixed vocabulary, so brand names it was never
+ * trained on come out as other words.
  */
-class Transcriber(context: Context) {
+class VoskEngine(context: Context) : SpeechEngine {
 
-    interface Listener {
-        fun onListening()
-        fun onPartial(text: String)
-        fun onLine(text: String)
-        fun onError(message: String)
-    }
+    override val id = EngineId.VOSK
 
     private val appContext = context.applicationContext
     private val worker = Executors.newSingleThreadExecutor()
@@ -36,13 +31,20 @@ class Transcriber(context: Context) {
     /** Bumped on every start and stop, so a slow model load can't resurrect a cancelled session. */
     @Volatile private var session = 0
     private var lastPartial = ""
+    private var lineCount = 0
 
-    fun start(assetDir: String, listener: Listener) {
+    override fun unavailableReason(language: Language): String? =
+        if (ModelInstaller.isBundled(appContext, assetDir(language))) null
+        else "The Vosk ${if (language == Language.HINDI) "Hindi" else "English"} model is not bundled in this build."
+
+    override fun start(language: Language, listener: SpeechEngine.Listener) {
         val mine = ++session
         lastPartial = ""
+        lineCount = 0
+        SpeechLog.started(id, language, "model=${assetDir(language)}")
         worker.execute {
             try {
-                val m = loadModel(assetDir)
+                val m = loadModel(assetDir(language))
                 if (mine != session) return@execute
                 val recognizer = Recognizer(m, SAMPLE_RATE)
                 val s = SpeechService(recognizer, SAMPLE_RATE)
@@ -55,34 +57,37 @@ class Transcriber(context: Context) {
                         listener.onPartial(text)
                     }
 
-                    override fun onResult(hypothesis: String?) = emit(hypothesis, "text")
-                    override fun onFinalResult(hypothesis: String?) = emit(hypothesis, "text")
+                    override fun onResult(hypothesis: String?) = emit(hypothesis)
+                    override fun onFinalResult(hypothesis: String?) = emit(hypothesis)
 
-                    private fun emit(hypothesis: String?, field: String) {
+                    private fun emit(hypothesis: String?) {
                         if (mine != session) return
-                        val text = JSONObject(hypothesis ?: return).optString(field).trim()
+                        val text = JSONObject(hypothesis ?: return).optString("text").trim()
                         lastPartial = ""
-                        if (text.isNotEmpty()) listener.onLine(text)
+                        if (text.isEmpty()) return
+                        SpeechLog.line(id, language, lineCount++, text)
+                        listener.onLine(text)
                     }
 
                     override fun onError(e: Exception?) {
-                        if (mine == session) listener.onError(e?.message ?: "Speech recognition failed")
+                        if (mine != session) return
+                        val message = e?.message ?: "Speech recognition failed"
+                        SpeechLog.error(id, language, message)
+                        listener.onError(message)
                     }
 
                     override fun onTimeout() = Unit
                 })
                 main.post { if (mine == session) listener.onListening() }
             } catch (t: Throwable) {
-                main.post { if (mine == session) listener.onError(t.message ?: t.javaClass.simpleName) }
+                val message = t.message ?: t.javaClass.simpleName
+                SpeechLog.error(id, language, message)
+                main.post { if (mine == session) listener.onError(message) }
             }
         }
     }
 
-    /**
-     * Stops listening and returns any words still in flight, so the last sentence the doctor
-     * said before the patient pressed stop is not lost.
-     */
-    fun stop(): String {
+    override fun stop(): String {
         session++
         val pending = lastPartial.trim()
         lastPartial = ""
@@ -103,6 +108,9 @@ class Transcriber(context: Context) {
             loadedAssetDir = assetDir
         }
     }
+
+    private fun assetDir(language: Language) =
+        if (language == Language.HINDI) "model-hi" else "model-en-in"
 
     companion object {
         private const val SAMPLE_RATE = 16000f
