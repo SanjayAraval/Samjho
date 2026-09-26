@@ -1,0 +1,525 @@
+package com.packetloss.samjho.ui
+
+import android.Manifest
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Matrix
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.ImageProxy
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.ContextCompat
+import com.packetloss.samjho.extract.Lexicon
+import com.packetloss.samjho.model.Confirmation
+import com.packetloss.samjho.scan.ScanBasis
+import com.packetloss.samjho.scan.ScanItem
+import com.packetloss.samjho.scan.ScanSearch
+import com.packetloss.samjho.scan.ScanStage
+import com.packetloss.samjho.scan.ScanUi
+import kotlin.math.max
+import kotlin.math.min
+
+/** What the patient can do on a scanned medicine. Every answer is theirs; nothing is automatic. */
+class ScanActions(
+    val confirm: (Int) -> Unit,
+    val reject: (Int) -> Unit,
+    val undo: (Int) -> Unit,
+    val choose: (Int, String) -> Unit,
+    val pick: (String) -> Unit,
+)
+
+private sealed interface Picker {
+    /** Picking a medicine by hand, with no card involved. */
+    data object Manual : Picker
+
+    /** Choosing another medicine for one card, with its close matches first. */
+    data class Another(val id: Int, val first: List<String>) : Picker
+}
+
+@Composable
+fun ScanScreen(
+    ui: ScanUi,
+    onPhoto: (Bitmap) -> Unit,
+    onCameraError: (String) -> Unit,
+    actions: ScanActions,
+    onScanAgain: () -> Unit,
+    onBack: () -> Unit,
+) {
+    var picker by remember { mutableStateOf<Picker?>(null) }
+
+    Surface(color = MaterialTheme.colorScheme.background) {
+        Column(Modifier.fillMaxSize().systemBarsPadding()) {
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp)) {
+                    Text("← वापस / Back", fontSize = 16.sp)
+                }
+            }
+            when (val stage = ui.stage) {
+                ScanStage.Camera -> CameraStage(onPhoto, onCameraError, onPickFromList = { picker = Picker.Manual })
+                ScanStage.Reading -> ReadingStage()
+                ScanStage.Results -> ResultsStage(ui, actions, onScanAgain, onOpenPicker = { picker = it })
+                is ScanStage.Failed -> FailedStage(stage.message, onScanAgain, onPickFromList = { picker = Picker.Manual })
+            }
+        }
+    }
+
+    picker?.let { target ->
+        val already = ui.items.filter { !it.isRejected }.map { it.key }.toSet()
+        PickerDialog(
+            title = if (target is Picker.Another) "कौन सी दवा? · Which medicine is it?" else "अपनी दवा चुनें · Pick your medicine",
+            first = (target as? Picker.Another)?.first.orEmpty(),
+            already = already,
+            onPick = { key ->
+                picker = null
+                if (target is Picker.Another) actions.choose(target.id, key) else actions.pick(key)
+            },
+            onDismiss = { picker = null },
+        )
+    }
+}
+
+// ------------------------------------------------------------------ camera
+
+@Composable
+private fun CameraStage(onPhoto: (Bitmap) -> Unit, onCameraError: (String) -> Unit, onPickFromList: () -> Unit) {
+    val context = LocalContext.current
+    var granted by remember {
+        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+    }
+    var refused by rememberSaveable { mutableStateOf(false) }
+    val askCamera = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        granted = ok
+        refused = !ok
+    }
+    // The camera is asked for here, when the patient opens the scan, and never when the app starts.
+    LaunchedEffect(Unit) { if (!granted) askCamera.launch(Manifest.permission.CAMERA) }
+
+    Column(Modifier.fillMaxSize()) {
+        if (granted) {
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                CameraPreview(onPhoto = onPhoto, reportError = onCameraError)
+            }
+        } else {
+            Column(
+                Modifier.weight(1f).fillMaxWidth().padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("कैमरे की अनुमति चाहिए · The camera is needed to scan", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = Ink)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    if (refused) "Camera permission was refused. You can allow it, or pick your medicine from the list without the camera."
+                    else "The photo is read on this phone. It is not saved and never leaves the phone.",
+                    fontSize = 15.sp,
+                    color = Muted,
+                )
+                Spacer(Modifier.height(16.dp))
+                Button(onClick = { askCamera.launch(Manifest.permission.CAMERA) }, shape = RoundedCornerShape(12.dp)) {
+                    Text("कैमरा चालू करें · Allow camera", fontSize = 16.sp)
+                }
+            }
+        }
+        PickFromListButton(onPickFromList, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+    }
+}
+
+@Composable
+private fun CameraPreview(onPhoto: (Bitmap) -> Unit, reportError: (String) -> Unit) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val previewView = remember { PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER } }
+    val imageCapture = remember { ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY).build() }
+    var capturing by remember { mutableStateOf(false) }
+
+    DisposableEffect(lifecycleOwner) {
+        val providerFuture = ProcessCameraProvider.getInstance(context)
+        providerFuture.addListener({
+            try {
+                val provider = providerFuture.get()
+                val preview = Preview.Builder().build().also { it.surfaceProvider = previewView.surfaceProvider }
+                provider.unbindAll()
+                provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
+            } catch (t: Throwable) {
+                reportError(t.message ?: "The camera could not be started.")
+            }
+        }, ContextCompat.getMainExecutor(context))
+        onDispose { runCatching { providerFuture.get().unbindAll() } }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
+        Text(
+            "पर्चे को फ्रेम में रखें · Fill the frame with the prescription",
+            color = Color.White,
+            fontSize = 14.sp,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(12.dp)
+                .background(Color(0x99000000), RoundedCornerShape(50))
+                .padding(horizontal = 14.dp, vertical = 6.dp),
+        )
+        Surface(
+            onClick = {
+                if (capturing) return@Surface
+                capturing = true
+                // takePicture with a callback keeps the photo in memory: nothing is written to storage.
+                imageCapture.takePicture(
+                    ContextCompat.getMainExecutor(context),
+                    object : ImageCapture.OnImageCapturedCallback() {
+                        override fun onCaptureSuccess(image: ImageProxy) {
+                            val bitmap = try {
+                                image.toUprightBitmap()
+                            } catch (t: Throwable) {
+                                capturing = false
+                                reportError(t.message ?: "The photo could not be read.")
+                                return
+                            } finally {
+                                image.close()
+                            }
+                            capturing = false
+                            onPhoto(bitmap)
+                        }
+
+                        override fun onError(exception: ImageCaptureException) {
+                            capturing = false
+                            reportError(exception.message ?: "The photo could not be taken.")
+                        }
+                    },
+                )
+            },
+            shape = CircleShape,
+            color = Color.White,
+            border = BorderStroke(5.dp, MaterialTheme.colorScheme.primary),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp).size(76.dp),
+        ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("📷", fontSize = 28.sp)
+            }
+        }
+    }
+}
+
+/** The photo, turned upright and no larger than the text reader needs, still only in memory. */
+private fun ImageProxy.toUprightBitmap(maxEdge: Int = 2560): Bitmap {
+    val raw = toBitmap()
+    val rotation = imageInfo.rotationDegrees
+    val scale = min(1f, maxEdge / max(raw.width, raw.height).toFloat())
+    if (rotation == 0 && scale == 1f) return raw
+    val matrix = Matrix().apply {
+        postRotate(rotation.toFloat())
+        postScale(scale, scale)
+    }
+    val out = Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, matrix, true)
+    if (out !== raw) raw.recycle()
+    return out
+}
+
+@Composable
+private fun ReadingStage() {
+    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+        CircularProgressIndicator()
+        Spacer(Modifier.height(16.dp))
+        Text("पर्चा पढ़ रहे हैं… · Reading the prescription…", fontSize = 17.sp, color = Ink)
+        Text("On this phone only.", fontSize = 14.sp, color = Muted)
+    }
+}
+
+@Composable
+private fun FailedStage(message: String, onTryAgain: () -> Unit, onPickFromList: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Panel(bg = WarnTint) {
+            Text("स्कैन नहीं हो सका · The scan did not work", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = WarnInk)
+            Text(message, fontSize = 14.sp, color = WarnInk)
+        }
+        Text("You can still pick your medicine from the list.", fontSize = 15.sp, color = Muted)
+        PickFromListButton(onPickFromList)
+        OutlinedButton(onClick = onTryAgain, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(14.dp)) {
+            Text("फिर से कोशिश करें · Try the camera again", fontSize = 16.sp)
+        }
+    }
+}
+
+@Composable
+private fun PickFromListButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    OutlinedButton(onClick = onClick, modifier = modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(14.dp)) {
+        Text("सूची से दवा चुनें · Pick a medicine from the list", fontSize = 16.sp)
+    }
+}
+
+// ------------------------------------------------------------------ results
+
+@Composable
+private fun ResultsStage(ui: ScanUi, actions: ScanActions, onScanAgain: () -> Unit, onOpenPicker: (Picker) -> Unit) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        val suggested = ui.items.count { it.basis != ScanBasis.PICKED }
+        Text("पर्चा स्कैन · Prescription scan", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+
+        if (ui.items.isEmpty()) {
+            Panel(bg = AvoidTint) {
+                Text("Nothing on the page matched a medicine in the list.", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = AvoidInk)
+                Text(
+                    "This is normal for handwriting or a blurry photo. Pick your medicine from the list below, or scan again.",
+                    fontSize = 14.sp,
+                    color = AvoidInk,
+                )
+            }
+        } else if (suggested > 0) {
+            Text(
+                "The camera found $suggested possible medicine${if (suggested == 1) "" else "s"}. Check each against your prescription, then confirm.",
+                fontSize = 14.sp,
+                color = Muted,
+            )
+        }
+
+        ui.items.forEach { item ->
+            ScanCard(item, actions, onChooseAnother = { onOpenPicker(Picker.Another(item.id, item.candidates)) })
+        }
+
+        Button(
+            onClick = { onOpenPicker(Picker.Manual) },
+            modifier = Modifier.fillMaxWidth().height(58.dp),
+            shape = RoundedCornerShape(14.dp),
+        ) {
+            Text("दवा नहीं मिली? · Didn't find your medicine?", fontSize = 17.sp, fontWeight = FontWeight.Medium)
+        }
+        OutlinedButton(onClick = onScanAgain, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(14.dp)) {
+            Text("फिर से स्कैन करें · Scan again", fontSize = 16.sp)
+        }
+
+        WhatTheCameraRead(ui)
+
+        Text(
+            "Samjho only shows what the camera read and the names you choose. It gives no medical advice. " +
+                "The photo stays on this phone.",
+            fontSize = 13.sp,
+            color = Muted,
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ScanCard(item: ScanItem, actions: ScanActions, onChooseAnother: () -> Unit) {
+    val primary = MaterialTheme.colorScheme.primary
+    val name = Lexicon.display(item.key)
+
+    Panel(bg = if (item.isRejected) Color(0xFFEFF2F4) else if (item.isUnconfirmed) AvoidTint else Color.White) {
+        when {
+            item.isRejected -> {
+                Text(
+                    "हटाया गया · Dismissed: $name",
+                    fontSize = 16.sp,
+                    color = Muted,
+                    textDecoration = TextDecoration.LineThrough,
+                )
+                UndoText { actions.undo(item.id) }
+            }
+            else -> {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (item.isUnconfirmed) Pill("UNCONFIRMED", WarnTint, WarnInk) else Pill("CONFIRMED", OkTint, primary)
+                    Pill(basisLabel(item.basis), Color(0xFFEDEFF2), Muted)
+                }
+                if (item.readAs != null) {
+                    Text("The camera read", fontSize = 13.sp, color = Muted)
+                    Text("“${item.readAs}”", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Ink, fontFamily = FontFamily.Monospace)
+                    Text(if (item.isUnconfirmed) "Possibly" else "Confirmed as", fontSize = 13.sp, color = Muted)
+                }
+                Text(name, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = if (item.isUnconfirmed) AvoidInk else Ink)
+
+                if (item.isUnconfirmed) {
+                    Text("Check this against your prescription before confirming.", fontSize = 13.sp, color = AvoidInk)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Button(onClick = { actions.confirm(item.id) }, shape = RoundedCornerShape(12.dp)) { Text("Confirm", fontSize = 16.sp) }
+                        OutlinedButton(onClick = { actions.reject(item.id) }, shape = RoundedCornerShape(12.dp)) { Text("Reject", fontSize = 16.sp) }
+                        TextButton(onClick = onChooseAnother) { Text("Choose another", fontSize = 16.sp) }
+                    }
+                } else {
+                    UndoText { actions.undo(item.id) }
+                }
+            }
+        }
+    }
+}
+
+private fun basisLabel(basis: ScanBasis) = when (basis) {
+    ScanBasis.EXACT -> "Exact name"
+    ScanBasis.SPELLING -> "Close spelling"
+    ScanBasis.SOUNDS_LIKE -> "Sounds similar"
+    ScanBasis.PICKED -> "Picked by you"
+}
+
+@Composable
+private fun UndoText(onClick: () -> Unit) {
+    Text(
+        "वापस करें · Undo",
+        color = MaterialTheme.colorScheme.primary,
+        fontSize = 15.sp,
+        fontWeight = FontWeight.Medium,
+        modifier = Modifier.clickable(onClick = onClick).padding(vertical = 8.dp),
+    )
+}
+
+/** The raw text, collapsed by default: so it can be shown on stage, and so nothing looks invented. */
+@Composable
+private fun WhatTheCameraRead(ui: ScanUi) {
+    var open by rememberSaveable { mutableStateOf(false) }
+    Surface(color = Color.White, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, Line), modifier = Modifier.fillMaxWidth()) {
+        Column {
+            Row(
+                Modifier.fillMaxWidth().clickable { open = !open }.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("कैमरे ने क्या पढ़ा · What the camera read", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Ink, modifier = Modifier.weight(1f))
+                Text(if (open) "▾" else "▸", fontSize = 18.sp, color = Muted)
+            }
+            if (open) {
+                HorizontalDivider(color = Line)
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    val read = ui.read
+                    if (read == null || read.isEmpty) {
+                        Text("Nothing was read from the photo.", fontSize = 14.sp, color = Muted)
+                    } else {
+                        RawBlock("Latin reader", read.latin)
+                        RawBlock("Devanagari reader", read.devanagari)
+                    }
+                    if (ui.millis > 0) Text("Read on this phone in ${ui.millis} ms.", fontSize = 12.sp, color = Muted)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RawBlock(title: String, lines: List<String>) {
+    Text(title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Muted)
+    Text(
+        if (lines.isEmpty()) "(nothing)" else lines.joinToString("\n"),
+        fontSize = 14.sp,
+        fontFamily = FontFamily.Monospace,
+        color = Ink,
+    )
+}
+
+@Composable
+private fun Panel(bg: Color = Color.White, content: @Composable ColumnScope.() -> Unit) {
+    Surface(color = bg, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, Line), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+    }
+}
+
+// ------------------------------------------------------------------ the full list
+
+/** Every medicine in the lexicon, searchable. Typing goes straight to the search box: it is the fast path. */
+@Composable
+private fun PickerDialog(title: String, first: List<String>, already: Set<String>, onPick: (String) -> Unit, onDismiss: () -> Unit) {
+    var query by remember { mutableStateOf("") }
+    val entries = remember(query, first) { ScanSearch.filter(query, first) }
+    val focus = remember { FocusRequester() }
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Column(Modifier.statusBarsPadding().navigationBarsPadding().imePadding().padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Ink, modifier = Modifier.weight(1f))
+                    TextButton(onClick = onDismiss) { Text("✕ रद्द · Close", fontSize = 15.sp) }
+                }
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    singleLine = true,
+                    placeholder = { Text("Type a few letters, e.g. para") },
+                    modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                )
+                LaunchedEffect(Unit) { focus.requestFocus() }
+                Spacer(Modifier.height(8.dp))
+                if (entries.isEmpty()) {
+                    Text(
+                        "No medicine with that name is in the list. Try fewer letters.",
+                        fontSize = 15.sp,
+                        color = Muted,
+                        modifier = Modifier.padding(vertical = 16.dp),
+                    )
+                }
+                LazyColumn(Modifier.weight(1f)) {
+                    items(entries, key = { it.key }) { entry ->
+                        Row(
+                            Modifier.fillMaxWidth().height(58.dp).clickable { onPick(entry.key) },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(entry.label, fontSize = 19.sp, color = Ink, modifier = Modifier.weight(1f))
+                            if (entry.key in already) Text("✓ added", fontSize = 13.sp, color = Muted)
+                        }
+                        HorizontalDivider(color = Line)
+                    }
+                }
+            }
+        }
+    }
+}

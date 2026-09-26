@@ -77,6 +77,7 @@ fun HomeScreen(
     onSelectEngine: (EngineId) -> Unit,
     onRunDemo: (DemoConsultation) -> Unit,
     onRecord: (Language) -> Unit,
+    onScan: () -> Unit,
 ) {
     val context = LocalContext.current
     var consent by remember { mutableStateOf(false) }
@@ -181,6 +182,16 @@ fun HomeScreen(
                     fontSize = 14.sp,
                     color = WarnInk,
                 )
+            }
+
+            OutlinedButton(
+                onClick = onScan,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(58.dp),
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                Text("📷  पर्चा स्कैन · Scan prescription", fontSize = 18.sp, fontWeight = FontWeight.Medium)
             }
 
             Spacer(Modifier.height(28.dp))

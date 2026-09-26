@@ -18,7 +18,9 @@ These are the product. Several are enforced by tests; do not weaken a test to ge
    medicine. A guess is never spoken or shared as a fact.
 4. **No INTERNET permission, ever.** The manifest strips it (`tools:node="remove"`). After adding or
    upgrading any dependency, check the packaged APK:
-   `aapt2 dump permissions app-debug.apk` must list only `RECORD_AUDIO`.
+   `aapt2 dump permissions app-debug.apk` must list `RECORD_AUDIO`, `CAMERA` (prescription scan) and
+   `ACCESS_NETWORK_STATE` (merged in by ML Kit; it can read connectivity but cannot send anything) and never
+   `INTERNET`. Anything else new is a question for the user.
 5. **Rules first, then the LLM.** `RuleExtractor` is deterministic and must return in 1 to 2 seconds; the
    result screen shows it before any model runs. The LLM runs afterwards, in its own process, off the main
    thread, behind the small `LlmEngine` interface.
@@ -50,7 +52,7 @@ These are the product. Several are enforced by tests; do not weaken a test to ge
 - Tests: `.\gradlew.bat :app:testDebugUnitTest` (needs `ANDROID_HOME`, or a `local.properties` with `sdk.dir`).
 - Demo build, install, Gemma: `.\scripts\setup-phone.ps1 -ModelsPath <dir> -GemmaPath <.task>`.
 - Test phone: iQOO I2501, adb serial `10BFBK0TN8001GJ`, Android 16.
-- Logs: `adb logcat -s SamjhoSpeech SamjhoNames SamjhoVoice SamjhoShare SamjhoLlm` (engine and mode per line,
+- Logs: `adb logcat -s SamjhoSpeech SamjhoNames SamjhoVoice SamjhoShare SamjhoLlm SamjhoScan` (engine and mode per line,
   how each medicine was identified and what the patient decided, read-aloud, share, model backend and speed).
 
 ## Map (`app/src/main/java/com/packetloss/samjho`)
@@ -62,6 +64,9 @@ These are the product. Several are enforced by tests; do not weaken a test to ge
   rules) talking over AIDL to `LlmService` in the `:llm` process, which runs `LiteRtRunner` (LiteRT-LM Gemma:
   tries NPU, GPU, CPU, keeps the fastest, caches the result). `BackendPlan` is the pure, tested part.
   `voice/` offline read-aloud. `share/` image and PDF summary for the share sheet.
+- `scan/` prescription scan: `TextScanner` (bundled ML Kit, Latin + Devanagari, on the phone), `ScanMatcher`
+  (reuses `Lexicon`/`Phonetic`, joins stricter than single words), `ScanSearch` (the full manual list),
+  `ScanUi` (every change is the patient's tap; a rescan keeps their decisions). Photo stays in memory.
 - `ui/` Compose screens and bilingual `Strings`; `SamjhoViewModel` holds the state.
 
 ## Device facts that bite

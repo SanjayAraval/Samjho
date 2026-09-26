@@ -10,6 +10,9 @@ import com.packetloss.samjho.ui.HomeScreen
 import com.packetloss.samjho.ui.MedicineActions
 import com.packetloss.samjho.ui.RecordScreen
 import com.packetloss.samjho.ui.ResultScreen
+import com.packetloss.samjho.ui.ScanActions
+import com.packetloss.samjho.ui.ScanScreen
+import com.packetloss.samjho.scan.ScanStage
 import com.packetloss.samjho.ui.SamjhoTheme
 
 class MainActivity : ComponentActivity() {
@@ -24,6 +27,7 @@ fun SamjhoApp(viewModel: SamjhoViewModel = viewModel()) {
     val state = viewModel.state
     val extraction = state.extraction
     val recording = state.recording
+    val scan = state.scan
 
     when {
         recording != null -> {
@@ -32,6 +36,24 @@ fun SamjhoApp(viewModel: SamjhoViewModel = viewModel()) {
                 recording = recording,
                 onStop = viewModel::stopRecording,
                 onCancel = viewModel::cancelRecording,
+            )
+        }
+        scan != null -> {
+            // While a photo is being read, Back is ignored rather than leaving a half-finished read behind.
+            BackHandler(onBack = { if (scan.stage != ScanStage.Reading) viewModel.closeScan() })
+            ScanScreen(
+                ui = scan,
+                onPhoto = viewModel::scanPhoto,
+                onCameraError = viewModel::scanFailed,
+                actions = ScanActions(
+                    confirm = viewModel::scanConfirm,
+                    reject = viewModel::scanReject,
+                    undo = viewModel::scanUndo,
+                    choose = viewModel::scanChoose,
+                    pick = viewModel::scanPick,
+                ),
+                onScanAgain = viewModel::scanAgain,
+                onBack = viewModel::closeScan,
             )
         }
         extraction != null -> {
@@ -61,6 +83,7 @@ fun SamjhoApp(viewModel: SamjhoViewModel = viewModel()) {
             onSelectEngine = { viewModel.selectEngine(it) },
             onRunDemo = viewModel::runDemo,
             onRecord = viewModel::startRecording,
+            onScan = viewModel::openScan,
         )
     }
 }

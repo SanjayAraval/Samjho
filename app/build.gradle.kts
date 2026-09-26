@@ -65,5 +65,16 @@ dependencies {
     // manifest still strips INTERNET, and that is re-checked after every dependency change.
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.17.1")
 
+    // Prescription scan. Camera preview and capture, and text recognition that runs entirely on the phone.
+    // These are the BUNDLED ML Kit artifacts (com.google.mlkit:*), which carry their models inside the APK.
+    // The play-services-mlkit-* variants would download models through Google Play and are not used.
+    val camerax = "1.4.2"
+    implementation("androidx.camera:camera-core:$camerax")
+    implementation("androidx.camera:camera-camera2:$camerax")
+    implementation("androidx.camera:camera-lifecycle:$camerax")
+    implementation("androidx.camera:camera-view:$camerax")
+    implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.mlkit:text-recognition-devanagari:16.0.1")
+
     testImplementation("junit:junit:4.13.2")
 }

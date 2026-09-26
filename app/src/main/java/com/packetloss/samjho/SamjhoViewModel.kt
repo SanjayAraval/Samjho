@@ -1,6 +1,7 @@
 package com.packetloss.samjho
 
 import android.app.Application
+import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -20,6 +21,10 @@ import com.packetloss.samjho.model.Hypothesis
 import com.packetloss.samjho.model.Language
 import com.packetloss.samjho.model.Medicine
 import com.packetloss.samjho.model.Utterance
+import com.packetloss.samjho.scan.ScanMatcher
+import com.packetloss.samjho.scan.ScanStage
+import com.packetloss.samjho.scan.ScanUi
+import com.packetloss.samjho.scan.TextScanner
 import java.util.concurrent.Executors
 import com.packetloss.samjho.speech.AndroidSpeechEngine
 import com.packetloss.samjho.speech.EngineId
@@ -57,6 +62,8 @@ data class UiState(
     val ai: AiState = AiState.Idle,
     /** Whether the on-device model is loading or ready, and on which backend at what speed. */
     val llm: LlmStatus = LlmStatus.Idle,
+    /** The prescription scan screen, or null when it is closed. */
+    val scan: ScanUi? = null,
     val reading: Speaker.State = Speaker.State.Idle,
     val extraction: Extraction? = null,
     /** How long the deterministic pass took. Shown on screen: the budget is 1-2 seconds. */
@@ -79,6 +86,7 @@ class SamjhoViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     private val speaker = Speaker(app)
+    private val scanner = TextScanner()
     private val llm: LlmEngine = LlmEngines.create(app)
     private val aiWorker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -239,7 +247,79 @@ class SamjhoViewModel(app: Application) : AndroidViewModel(app) {
         state = state.copy(recording = change(rec))
     }
 
+    // ---------------------------------------------------------------- prescription scan
+
+    fun openScan() {
+        Log.i(TextScanner.TAG, "scan opened")
+        state = state.copy(scan = ScanUi())
+    }
+
+    fun closeScan() {
+        Log.i(TextScanner.TAG, "scan closed")
+        state = state.copy(scan = null)
+    }
+
+    fun scanAgain() = updateScan { it.copy(stage = ScanStage.Camera) }
+
+    /** Reads a photo on the phone and turns what it read into suggestions. The bitmap is never kept or saved. */
+    fun scanPhoto(bitmap: Bitmap) {
+        val start = System.nanoTime()
+        updateScan { it.reading() }
+        scanner.read(bitmap) { result ->
+            bitmap.recycle()
+            result.fold(
+                onSuccess = { read ->
+                    val items = ScanMatcher.match(read.allLines())
+                    val millis = (System.nanoTime() - start) / 1_000_000
+                    // Counts and medicine keys only: what a prescription says is the patient's, not ours to log.
+                    Log.i(
+                        TextScanner.TAG,
+                        "scan: ${read.latin.size} latin lines, ${read.devanagari.size} devanagari lines, " +
+                            "${items.size} suggestions ${items.map { "${it.key}/${it.basis}" }} in $millis ms",
+                    )
+                    updateScan { it.withRead(read, items, millis) }
+                },
+                onFailure = { e ->
+                    Log.w(TextScanner.TAG, "scan failed: ${e.message}")
+                    updateScan { it.failed(e.message ?: "The text reader failed.") }
+                },
+            )
+        }
+    }
+
+    fun scanFailed(message: String) {
+        Log.w(TextScanner.TAG, "camera failed: $message")
+        updateScan { it.failed(message) }
+    }
+
+    fun scanConfirm(id: Int) = decideScan(id, "confirm") { it.confirm(id) }
+
+    fun scanReject(id: Int) = decideScan(id, "reject") { it.reject(id) }
+
+    fun scanUndo(id: Int) = decideScan(id, "undo") { it.undo(id) }
+
+    fun scanChoose(id: Int, key: String) = decideScan(id, "choose=$key") { it.choose(id, key) }
+
+    /** Picked from the full list: the manual path, which needs neither the camera nor any text. */
+    fun scanPick(key: String) {
+        Log.i(TextScanner.TAG, "decision=pick key=$key")
+        updateScan { it.pick(key) }
+    }
+
+    /** Every answer here is the patient's own; nothing else ever confirms a scanned medicine. */
+    private fun decideScan(id: Int, what: String, change: (ScanUi) -> ScanUi) {
+        val item = state.scan?.items?.firstOrNull { it.id == id } ?: return
+        Log.i(TextScanner.TAG, "decision=$what key=${item.key} basis=${item.basis}")
+        updateScan(change)
+    }
+
+    private fun updateScan(change: (ScanUi) -> ScanUi) {
+        val current = state.scan ?: return
+        state = state.copy(scan = change(current))
+    }
+
     override fun onCleared() {
+        scanner.close()
         speaker.shutdown()
         engines.values.forEach { it.stop() }
     }
