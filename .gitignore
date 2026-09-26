@@ -14,3 +14,6 @@ local.properties
 /app/src/main/assets/model-hi/
 /app/src/main/assets/model-en-in/
 *.task
+
+# A separate clone of the GitHub repo lives here; never track it inside this repo.
+/Samjho/
