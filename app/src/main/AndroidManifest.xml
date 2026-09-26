@@ -29,5 +29,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".llm.LlmService"
+            android:exported="false"
+            android:process=":llm" />
+
     </application>
 </manifest>
