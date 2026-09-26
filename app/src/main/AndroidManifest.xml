@@ -41,6 +41,19 @@
                 android:resource="@xml/share_paths" />
         </provider>
 
+        <!-- Lets the GPU backend find the phone's OpenCL driver (Android 12+ hides vendor libraries otherwise). -->
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <uses-native-library android:name="libvndksupport.so" android:required="false" />
+
+        <!--
+          The language model lives in its own process, so a native crash or an out-of-memory kill in the
+          model can never take the app, or the rule-based result on screen, down with it.
+        -->
+        <service
+            android:name=".llm.LlmService"
+            android:exported="false"
+            android:process=":llm" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

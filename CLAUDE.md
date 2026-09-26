@@ -50,16 +50,18 @@ These are the product. Several are enforced by tests; do not weaken a test to ge
 - Tests: `.\gradlew.bat :app:testDebugUnitTest` (needs `ANDROID_HOME`, or a `local.properties` with `sdk.dir`).
 - Demo build, install, Gemma: `.\scripts\setup-phone.ps1 -ModelsPath <dir> -GemmaPath <.task>`.
 - Test phone: iQOO I2501, adb serial `10BFBK0TN8001GJ`, Android 16.
-- Logs: `adb logcat -s SamjhoSpeech SamjhoNames SamjhoVoice SamjhoShare` (engine and mode per line,
-  how each medicine was identified and what the patient decided, read-aloud, share).
+- Logs: `adb logcat -s SamjhoSpeech SamjhoNames SamjhoVoice SamjhoShare SamjhoLlm` (engine and mode per line,
+  how each medicine was identified and what the patient decided, read-aloud, share, model backend and speed).
 
 ## Map (`app/src/main/java/com/packetloss/samjho`)
 
 - `extract/` rules: `RuleExtractor`, `Lexicon`, `Phonetic`, `NameRepair` (LLM layer, pure and tested).
 - `model/` data: `Extraction`, `Medicine` (basis, confirmation, candidates), `Utterance`, `Hypothesis`.
 - `speech/` engines behind `SpeechEngine`: `AndroidSpeechEngine` (default), `VoskEngine`; `Hypotheses`.
-- `llm/` the `LlmEngine` seam. Praneeth's LiteRT-LM `:llm` engine (branch `praneeth/llm`) plugs in via
-  `LlmEngines.create`. `voice/` offline read-aloud. `share/` image and PDF summary for the share sheet.
+- `llm/` the `LlmEngine` seam, implemented by `AidlLlmEngine` (app side: 90 s limit, restarts, falls back to
+  rules) talking over AIDL to `LlmService` in the `:llm` process, which runs `LiteRtRunner` (LiteRT-LM Gemma:
+  tries NPU, GPU, CPU, keeps the fastest, caches the result). `BackendPlan` is the pure, tested part.
+  `voice/` offline read-aloud. `share/` image and PDF summary for the share sheet.
 - `ui/` Compose screens and bilingual `Strings`; `SamjhoViewModel` holds the state.
 
 ## Device facts that bite
@@ -71,3 +73,12 @@ These are the product. Several are enforced by tests; do not weaken a test to ge
 - The phone locks, rotates and gets backgrounded by Office Kit; a live recording ends when Samjho is not
   in the foreground.
 - Wi-Fi has come back on inside airplane mode before, so the airplane setting alone proves nothing.
+- The `:llm` process is frozen by Android whenever the screen is off or Samjho is not in front, so the model
+  only loads and answers while the phone is awake and unlocked with Samjho open. Tests need that.
+- Gemma is read from `/data/local/tmp/llm/` (or the app's external files dir `llm/`). On this phone CPU
+  (about 69 tok/s on the probe) beats GPU (about 40); the NPU is not usable, since no vendor NPU runtime is
+  packaged and the model is not NPU-compiled. The app only tries the NPU when that library is present,
+  because the runtime otherwise falls back to CPU silently and the label would lie.
+- A backend is only written off after two interrupted starts, so swiping the app away cannot disable the AI.
+- To exercise the timeout path, `adb shell run-as com.packetloss.samjho kill -STOP <pid of :llm>` and run a
+  demo: the rules result must stay, and after 90 s the app kills and restarts the model process itself.

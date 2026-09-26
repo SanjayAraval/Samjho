@@ -16,6 +16,8 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.ui.text.style.TextDecoration
 import com.packetloss.samjho.AiState
+import com.packetloss.samjho.llm.LlmStatus
+import com.packetloss.samjho.llm.LlmStatusText
 import com.packetloss.samjho.share.SummaryBuilder
 import com.packetloss.samjho.share.SummarySharer
 import com.packetloss.samjho.voice.Speaker
@@ -70,6 +72,7 @@ import com.packetloss.samjho.model.Note
 @Composable
 fun HomeScreen(
     engine: EngineId,
+    llm: LlmStatus,
     unavailable: Map<Language, String>,
     onSelectEngine: (EngineId) -> Unit,
     onRunDemo: (DemoConsultation) -> Unit,
@@ -115,6 +118,8 @@ fun HomeScreen(
 
             Spacer(Modifier.height(18.dp))
             Pill("पूरी तरह ऑफ़लाइन · Fully offline", OkTint, MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(6.dp))
+            Text(LlmStatusText.line(llm), fontSize = 13.sp, color = Muted)
 
             Spacer(Modifier.height(28.dp))
             Text(
@@ -218,6 +223,7 @@ fun ResultScreen(
     ruleMillis: Long,
     sourceLabel: String,
     ai: AiState,
+    llm: LlmStatus,
     reading: Speaker.State,
     onRead: () -> Unit,
     onStopReading: () -> Unit,
@@ -249,6 +255,7 @@ fun ResultScreen(
 
             Text(sourceLabel, fontSize = 13.sp, color = Muted)
             Text("${ruleMillis} ms", fontSize = 13.sp, color = Muted)
+            Text(LlmStatusText.line(llm), fontSize = 13.sp, color = Muted)
 
             val context = LocalContext.current
             var choosingShare by remember { mutableStateOf(false) }

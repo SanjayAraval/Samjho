@@ -41,6 +41,7 @@ fun SamjhoApp(viewModel: SamjhoViewModel = viewModel()) {
                 ruleMillis = state.ruleMillis,
                 sourceLabel = state.sourceLabel,
                 ai = state.ai,
+                llm = state.llm,
                 reading = state.reading,
                 onRead = viewModel::readAloud,
                 onStopReading = viewModel::stopReading,
@@ -55,6 +56,7 @@ fun SamjhoApp(viewModel: SamjhoViewModel = viewModel()) {
         }
         else -> HomeScreen(
             engine = state.engine,
+            llm = state.llm,
             unavailable = state.unavailable,
             onSelectEngine = { viewModel.selectEngine(it) },
             onRunDemo = viewModel::runDemo,

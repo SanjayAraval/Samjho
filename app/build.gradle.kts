@@ -30,6 +30,8 @@ android {
 
     buildFeatures {
         compose = true
+        // The language model runs in its own process behind a bound service; see llm/ILlmService.aidl.
+        aidl = true
     }
 
     packaging {
@@ -58,6 +60,10 @@ dependencies {
     // Offline speech recognition. @aar keeps JNA as an Android library rather than a desktop jar.
     implementation("com.alphacephei:vosk-android:0.3.47@aar")
     implementation("net.java.dev.jna:jna:5.13.0@aar")
+
+    // On-device language model (Gemma via LiteRT-LM). Its manifest asks for no permissions; the merged
+    // manifest still strips INTERNET, and that is re-checked after every dependency change.
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.17.1")
 
     testImplementation("junit:junit:4.13.2")
 }

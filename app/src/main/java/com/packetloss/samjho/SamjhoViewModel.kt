@@ -13,6 +13,8 @@ import com.packetloss.samjho.extract.NameRepair
 import com.packetloss.samjho.extract.RuleExtractor
 import com.packetloss.samjho.llm.LlmEngine
 import com.packetloss.samjho.llm.LlmEngines
+import com.packetloss.samjho.llm.LlmStatus
+import com.packetloss.samjho.llm.LlmStatusSource
 import com.packetloss.samjho.model.Extraction
 import com.packetloss.samjho.model.Hypothesis
 import com.packetloss.samjho.model.Language
@@ -53,6 +55,8 @@ sealed interface AiState {
 
 data class UiState(
     val ai: AiState = AiState.Idle,
+    /** Whether the on-device model is loading or ready, and on which backend at what speed. */
+    val llm: LlmStatus = LlmStatus.Idle,
     val reading: Speaker.State = Speaker.State.Idle,
     val extraction: Extraction? = null,
     /** How long the deterministic pass took. Shown on screen: the budget is 1-2 seconds. */
@@ -84,6 +88,11 @@ class SamjhoViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         selectEngine(SpeechPrefs.engine(app), persist = false)
+        // Load the model in the background now, so it is usually ready before the first result appears.
+        (llm as? LlmStatusSource)?.let { source ->
+            source.addListener { status -> state = state.copy(llm = status) }
+            source.start()
+        }
     }
 
     fun selectEngine(id: EngineId, persist: Boolean = true) {
