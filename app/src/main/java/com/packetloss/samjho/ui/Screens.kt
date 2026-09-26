@@ -2,6 +2,7 @@ package com.packetloss.samjho.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -63,6 +64,8 @@ import com.packetloss.samjho.model.Extraction
 import com.packetloss.samjho.model.Language
 import com.packetloss.samjho.model.Medicine
 import com.packetloss.samjho.model.Provenance
+import com.packetloss.samjho.reminders.ReminderOutcome
+import com.packetloss.samjho.reminders.SkipReason
 import com.packetloss.samjho.scan.PaperMerge
 import com.packetloss.samjho.share.SummaryBuilder
 import com.packetloss.samjho.share.SummarySharer
@@ -88,6 +91,8 @@ fun HomeScreen(
     onRunDemo: (DemoConsultation) -> Unit,
     onRecord: (Language) -> Unit,
     onScan: () -> Unit,
+    activeReminders: Int,
+    onOpenReminders: () -> Unit,
 ) {
     val lang = UiLanguage.resolve()
     val t = remember(lang) { Strings(lang) }
@@ -167,6 +172,13 @@ fun HomeScreen(
                 Text(t.scanShort, fontSize = 17.sp, fontWeight = FontWeight.Medium)
             }
 
+            if (activeReminders > 0) {
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = onOpenReminders, contentPadding = PaddingValues(0.dp)) {
+                    Text("⏰  ${t.reminders} ($activeReminders)", fontSize = 15.sp)
+                }
+            }
+
             Spacer(Modifier.height(8.dp))
             TextButton(onClick = { showDemos = !showDemos }, contentPadding = PaddingValues(0.dp)) {
                 Text((if (showDemos) "▾  " else "▸  ") + t.demoHeading, fontSize = 15.sp)
@@ -231,6 +243,12 @@ fun ResultScreen(
     onScanPrescription: () -> Unit,
     /** How many names the last applied prescription confirmed and how many medicines it added, if one was. */
     paperApplied: Pair<Int, Int>?,
+    /** What the last tap on "Set reminders" did for this summary, if anything. */
+    reminderOutcome: ReminderOutcome?,
+    /** How many reminders are active in all. */
+    activeReminders: Int,
+    onSetReminders: () -> Unit,
+    onOpenReminders: () -> Unit,
     actions: MedicineActions,
     onBack: () -> Unit,
 ) {
@@ -238,6 +256,16 @@ fun ResultScreen(
     val t = remember(lang) { Strings(lang) }
     // Screens opened from here (the prescription scan) follow this summary until the person chooses otherwise.
     LaunchedEffect(extraction.language) { UiLanguage.consultation = extraction.language }
+
+    // Notifications are asked for at the moment the patient asks for reminders, never before. Whatever the answer,
+    // the reminders are set: a refusal only means they will be silent until notifications are allowed.
+    val reminderContext = LocalContext.current
+    val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { onSetReminders() }
+    val setReminders = {
+        val needsAsk = Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(reminderContext, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        if (needsAsk) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS) else onSetReminders()
+    }
 
     var wordsOpen by remember { mutableStateOf(false) }
     var showWordsRequest by remember { mutableIntStateOf(0) }
@@ -394,6 +422,43 @@ fun ResultScreen(
                         Text("•  ${t.missingSection(s)}", fontSize = 15.sp, color = Muted)
                     }
                     Text(t.askDoctor, fontSize = 13.sp, color = Muted)
+                }
+            }
+
+            // Reminders: only for what the doctor gave a time of day for, and it says so for the rest.
+            Panel(bg = OkTint) {
+                Text(t.setRemindersHint, fontSize = 14.sp, color = Ink)
+                Button(onClick = setReminders, shape = RoundedCornerShape(12.dp)) { Text(t.setReminders, fontSize = 16.sp) }
+                reminderOutcome?.let { outcome ->
+                    if (outcome.scheduled.isNotEmpty()) {
+                        Text(t.remindersSet(outcome.scheduled.size), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
+                        outcome.scheduled.forEach { r ->
+                            Text(
+                                "${r.name} · ${t.reminderTime(r.slot, r.hour)} · " + (r.remaining?.let { t.daysLeft(it) } ?: t.untilCancelled),
+                                fontSize = 15.sp,
+                                color = Ink,
+                            )
+                        }
+                    } else if (outcome.skipped.isEmpty()) {
+                        Text(t.nothingToRemind, fontSize = 14.sp, color = Muted)
+                    }
+                    outcome.skipped.forEach { sk ->
+                        when (sk.reason) {
+                            SkipReason.NO_TIME_OF_DAY -> Text(t.noTimeGiven(sk.name), fontSize = 14.sp, color = Muted)
+                            SkipReason.NOT_CONFIRMED -> Text(t.notConfirmedNoReminder(sk.name), fontSize = 14.sp, color = AvoidInk)
+                        }
+                    }
+                    if (outcome.notificationsBlocked) {
+                        Text(t.notificationsOff, fontSize = 14.sp, color = AvoidInk)
+                        OutlinedButton(onClick = { openNotificationSettings(reminderContext) }, shape = RoundedCornerShape(12.dp)) {
+                            Text(t.openSettings, fontSize = 15.sp)
+                        }
+                    }
+                }
+                if (activeReminders > 0) {
+                    TextButton(onClick = onOpenReminders, contentPadding = PaddingValues(0.dp)) {
+                        Text("${t.viewReminders} ($activeReminders)", fontSize = 15.sp)
+                    }
                 }
             }
 

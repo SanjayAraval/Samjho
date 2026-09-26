@@ -23,12 +23,16 @@ import com.packetloss.samjho.model.Hypothesis
 import com.packetloss.samjho.model.Language
 import com.packetloss.samjho.model.Medicine
 import com.packetloss.samjho.model.Utterance
+import com.packetloss.samjho.reminders.Reminder
+import com.packetloss.samjho.reminders.ReminderOutcome
+import com.packetloss.samjho.reminders.Reminders
 import com.packetloss.samjho.scan.PaperMerge
 import com.packetloss.samjho.scan.ScanRepair
 import com.packetloss.samjho.scan.ScanMatcher
 import com.packetloss.samjho.scan.ScanStage
 import com.packetloss.samjho.scan.ScanUi
 import com.packetloss.samjho.scan.TextScanner
+import java.util.UUID
 import java.util.concurrent.Executors
 import com.packetloss.samjho.speech.AndroidSpeechEngine
 import com.packetloss.samjho.speech.EngineId
@@ -36,6 +40,7 @@ import com.packetloss.samjho.speech.SpeechEngine
 import com.packetloss.samjho.speech.SpeechPrefs
 import com.packetloss.samjho.speech.VoskEngine
 import com.packetloss.samjho.ui.Strings
+import com.packetloss.samjho.ui.UiLanguage
 import com.packetloss.samjho.voice.ReadAloudScript
 import com.packetloss.samjho.voice.Speaker
 
@@ -79,6 +84,13 @@ data class UiState(
     val sourceLabel: String = "",
     val recording: RecordingState? = null,
     val engine: EngineId = SpeechPrefs.DEFAULT,
+    /** Names the summary on screen, so reminders set from it can open it again from a notification. */
+    val consultationId: String = "",
+    /** Every reminder that is still active, soonest first. */
+    val reminders: List<Reminder> = emptyList(),
+    val remindersOpen: Boolean = false,
+    /** What the patient was told the last time they tapped "Set reminders" on this summary. */
+    val reminderOutcome: ReminderOutcome? = null,
     /** Why the selected engine cannot record a language right now; absent means it can. */
     val unavailable: Map<Language, String> = emptyMap(),
 )
@@ -94,6 +106,7 @@ class SamjhoViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     private val speaker = Speaker(app)
+    private val reminderStore = Reminders(app)
     private val scanner = TextScanner()
     private val llm: LlmEngine = LlmEngines.create(app)
     private val aiWorker = Executors.newSingleThreadExecutor()
@@ -107,6 +120,11 @@ class SamjhoViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         selectEngine(SpeechPrefs.engine(app), persist = false)
+        // Reminders are worded in the language the patient last chose, and their alarms are rebuilt from storage
+        // whenever the app opens, since a force-stop clears them.
+        UiLanguage.onChosen = { reminderStore.language = it }
+        reminderStore.rebuild()
+        state = state.copy(reminders = reminderStore.all())
         // Load the model in the background now, so it is usually ready before the first result appears.
         (llm as? LlmStatusSource)?.let { source ->
             source.addListener { status -> state = state.copy(llm = status) }
@@ -168,7 +186,56 @@ class SamjhoViewModel(app: Application) : AndroidViewModel(app) {
 
     fun back() {
         speaker.stop()
-        state = state.copy(extraction = null, recording = null, ruleMillis = 0, sourceLabel = "", reading = Speaker.State.Idle, paperApplied = null)
+        state = state.copy(
+            extraction = null, recording = null, ruleMillis = 0, sourceLabel = "", reading = Speaker.State.Idle,
+            paperApplied = null, consultationId = "", reminderOutcome = null,
+        )
+    }
+
+    // ---- medicine reminders
+
+    /** Sets a daily reminder for each confirmed medicine the doctor gave a time of day for, and says what it did. */
+    fun setReminders() {
+        val e = state.extraction ?: return
+        val outcome = reminderStore.set(state.consultationId, e, UiLanguage.resolve(e.language))
+        state = state.copy(reminderOutcome = outcome, reminders = reminderStore.all())
+    }
+
+    fun openReminders() {
+        state = state.copy(remindersOpen = true, reminders = reminderStore.all())
+    }
+
+    fun closeReminders() {
+        state = state.copy(remindersOpen = false)
+    }
+
+    fun cancelReminder(id: String) {
+        reminderStore.cancel(id)
+        state = state.copy(reminders = reminderStore.all())
+    }
+
+    fun cancelAllReminders() {
+        reminderStore.cancelAll()
+        state = state.copy(reminders = reminderStore.all(), reminderOutcome = null)
+    }
+
+    /** A tapped reminder opens the summary it was set from, as it was when the reminders were set. */
+    fun openConsultation(id: String) {
+        val e = reminderStore.summary(id)
+        if (e == null) {
+            Log.w("SamjhoReminders", "no saved summary for $id")
+            state = state.copy(remindersOpen = false)
+            return
+        }
+        if (state.recording != null) cancelRecording()
+        speaker.stop()
+        scanRun++
+        resultId++
+        state = state.copy(
+            extraction = e, consultationId = id, recording = null, scan = null, remindersOpen = false,
+            reminderOutcome = null, ai = AiState.Idle, paperApplied = null, ruleMillis = 0, sourceLabel = "",
+            reading = Speaker.State.Idle, reminders = reminderStore.all(),
+        )
     }
 
     /** Reads the result on screen aloud, exactly as shown, using only an offline voice. */
@@ -220,6 +287,8 @@ class SamjhoViewModel(app: Application) : AndroidViewModel(app) {
             recording = null,
             ai = AiState.Idle,
             paperApplied = null,
+            consultationId = UUID.randomUUID().toString(),
+            reminderOutcome = null,
         )
         logMedicines("rules", extraction)
         repairNames(mine, extraction)

@@ -79,6 +79,10 @@ These are the product. Several are enforced by tests; do not weaken a test to ge
   (reuses `Lexicon`/`Phonetic`, joins stricter than single words), `ScanSearch` (the full manual list),
   `ScanUi` (every change is the patient's tap; a rescan keeps their decisions), `PaperMerge` (paper names into
   the consultation summary). Photo stays in memory.
+- `reminders/` medicine reminders: `ReminderPlan` (pure: only confirmed medicines with a time of day, 8am / 2pm / 6pm /
+  9pm, the doctor's duration or until cancelled), `Reminders` (one-shot `setAndAllowWhileIdle` alarms that set the next,
+  private storage, the notification), `ReminderJson`, boot/update receiver. A debug-only receiver in `src/debug` makes
+  one fire in minutes: `adb shell am broadcast -n com.packetloss.samjho/.reminders.DebugRemindReceiver --ei minutes 1`.
 - `ui/` Compose screens and bilingual `Strings`; `SamjhoViewModel` holds the state.
 
 ## Device facts that bite
@@ -90,6 +94,9 @@ These are the product. Several are enforced by tests; do not weaken a test to ge
 - The phone locks, rotates and gets backgrounded by Office Kit; a live recording ends when Samjho is not
   in the foreground.
 - Wi-Fi has come back on inside airplane mode before, so the airplane setting alone proves nothing.
+- The phone's `fast_freezer` freezes Samjho about 10 s after the screen locks, and alarms set for a frozen app are
+  dropped (`dumpsys alarm` shows `Reason=frozen`; `logcat -b all` shows `am_app_frozen ... fast_freezer`). A reminder
+  therefore only fires while the phone is awake, unless Samjho is exempted from the phone's background limits.
 - The `:llm` process is frozen by Android whenever the screen is off or Samjho is not in front, so the model
   only loads and answers while the phone is awake and unlocked with Samjho open. Tests need that.
 - Gemma is read from `/data/local/tmp/llm/` (or the app's external files dir `llm/`). On this phone CPU

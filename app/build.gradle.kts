@@ -77,4 +77,6 @@ dependencies {
     implementation("com.google.mlkit:text-recognition-devanagari:16.0.1")
 
     testImplementation("junit:junit:4.13.2")
+    // Test-only: the Android build has org.json built in, the plain JVM tests need a real one. Not in the APK.
+    testImplementation("org.json:json:20240303")
 }

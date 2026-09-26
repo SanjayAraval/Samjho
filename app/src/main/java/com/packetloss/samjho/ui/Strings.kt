@@ -198,6 +198,60 @@ class Strings(private val language: Language) {
         FoodRelation.WITH_FOOD -> pick("खाने के साथ", "with food")
     }
 
+    // ---- medicine reminders
+    val reminderChannel = pick("दवा की याद", "Medicine reminders")
+    val reminderTitle = pick("दवा का समय", "Time for your medicine")
+
+    /** "Paracetamol, 1 tablet, after food": the name and only what the doctor said about how to take it. */
+    fun reminderLine(name: String, doseCount: Int?, food: FoodRelation?): String =
+        listOfNotNull(name, howToTake(doseCount, food)).joinToString(", ")
+
+    /** "1 tablet, after food": the dose and the food instruction, if the doctor gave them. */
+    fun howToTake(doseCount: Int?, food: FoodRelation?): String? =
+        listOfNotNull(doseCount?.let { dose(it) }, food?.let { plainFood(it) }).joinToString(", ").ifEmpty { null }
+
+    val setReminders = pick("⏰  याद दिलाना चालू करें", "⏰  Set reminders")
+    val setRemindersHint = pick(
+        "जिन दवाओं का समय डॉक्टर ने बताया, उनके लिए रोज़ याद दिलाएगा।",
+        "A daily reminder for each medicine the doctor gave a time of day for.",
+    )
+    val reminders = pick("दवा की याद", "Reminders")
+    val viewReminders = pick("याद दिलाने वाले देखें", "See reminders")
+    val noReminders = pick("कोई याद दिलाना चालू नहीं है।", "No reminders are set.")
+    val cancelAll = pick("सब रद्द करें", "Cancel all")
+    val openSummary = pick("सार खोलें", "Open the summary")
+    val untilCancelled = pick("जब तक आप रद्द न करें", "Until you cancel")
+    val notificationsOff = pick(
+        "इस ऐप की सूचनाएँ बंद हैं, इसलिए याद दिलाना दिखेगा नहीं। सेटिंग में सूचनाएँ चालू करें।",
+        "Notifications are off for Samjho, so reminders will not show. Turn them on in Settings.",
+    )
+    val openSettings = pick("सेटिंग खोलें", "Open Settings")
+
+    fun remindersSet(n: Int) = pick(
+        "✓ $n याद दिलाना चालू हुआ",
+        "✓ $n ${if (n == 1) "reminder" else "reminders"} set",
+    )
+
+    fun noTimeGiven(name: String) = pick(
+        "$name: डॉक्टर ने दिन का समय नहीं बताया, इसलिए याद नहीं दिलाई जाएगी।",
+        "$name: the doctor did not say a time of day, so there is no reminder.",
+    )
+
+    fun notConfirmedNoReminder(name: String) = pick(
+        "$name: नाम की पुष्टि होनी बाकी है, इसलिए याद नहीं दिलाई जाएगी।",
+        "$name: the name is not confirmed yet, so there is no reminder.",
+    )
+
+    val nothingToRemind = pick("किसी दवा का समय डॉक्टर ने नहीं बताया, इसलिए कोई याद नहीं लगी।", "The doctor gave no time of day for any medicine, so no reminder was set.")
+
+    /** "8:00 am · Morning" / "सुबह 8:00". */
+    fun reminderTime(slot: TimeOfDay, hour: Int): String {
+        val h12 = if (hour % 12 == 0) 12 else hour % 12
+        return pick("${timeOfDay(slot)} $h12:00", "$h12:00 ${if (hour < 12) "am" else "pm"} · ${timeOfDay(slot)}")
+    }
+
+    fun daysLeft(n: Int) = pick("$n दिन बाकी", if (n == 1) "1 day left" else "$n days left")
+
     // ---- toggle and navigation
     val back = pick("← वापस", "← Back")
     val close = pick("बंद करें", "Close")

@@ -29,8 +29,18 @@ import com.packetloss.samjho.model.Language
  * Both languages exist in [Strings]; this only decides which one is displayed.
  */
 object UiLanguage {
+    private var pick by mutableStateOf<Language?>(null)
+
+    /** Called with every choice, so things outside the screens (medicine reminders) can follow the toggle. */
+    var onChosen: ((Language) -> Unit)? = null
+
     /** Null until the person taps the toggle. */
-    var chosen by mutableStateOf<Language?>(null)
+    var chosen: Language?
+        get() = pick
+        set(value) {
+            pick = value
+            if (value != null) onChosen?.invoke(value)
+        }
 
     /** The language of the latest consultation shown; the default for the screens that have no summary of their own. */
     var consultation by mutableStateOf<Language?>(null)

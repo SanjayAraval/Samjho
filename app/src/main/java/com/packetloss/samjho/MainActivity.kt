@@ -1,14 +1,18 @@
 package com.packetloss.samjho
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.packetloss.samjho.ui.HomeScreen
 import com.packetloss.samjho.ui.MedicineActions
+import com.packetloss.samjho.reminders.Reminders
 import com.packetloss.samjho.ui.RecordScreen
+import com.packetloss.samjho.ui.RemindersScreen
 import com.packetloss.samjho.ui.ResultScreen
 import com.packetloss.samjho.ui.ScanActions
 import com.packetloss.samjho.ui.ScanScreen
@@ -16,9 +20,25 @@ import com.packetloss.samjho.scan.ScanStage
 import com.packetloss.samjho.ui.SamjhoTheme
 
 class MainActivity : ComponentActivity() {
+    private val viewModel: SamjhoViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { SamjhoTheme { SamjhoApp() } }
+        setContent { SamjhoTheme { SamjhoApp(viewModel) } }
+        openFromNotification(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        openFromNotification(intent)
+    }
+
+    /** A tapped reminder brings the summary it was set from. The extra is used up, so a rotation does not reopen it. */
+    private fun openFromNotification(intent: Intent?) {
+        val id = intent?.getStringExtra(Reminders.EXTRA_CONSULTATION) ?: return
+        intent.removeExtra(Reminders.EXTRA_CONSULTATION)
+        viewModel.openConsultation(id)
     }
 }
 
@@ -30,6 +50,16 @@ fun SamjhoApp(viewModel: SamjhoViewModel = viewModel()) {
     val scan = state.scan
 
     when {
+        state.remindersOpen -> {
+            BackHandler(onBack = viewModel::closeReminders)
+            RemindersScreen(
+                reminders = state.reminders,
+                onCancel = viewModel::cancelReminder,
+                onCancelAll = viewModel::cancelAllReminders,
+                onOpenSummary = viewModel::openConsultation,
+                onBack = viewModel::closeReminders,
+            )
+        }
         recording != null -> {
             BackHandler(onBack = viewModel::cancelRecording)
             RecordScreen(
@@ -70,6 +100,10 @@ fun SamjhoApp(viewModel: SamjhoViewModel = viewModel()) {
                 onRead = viewModel::readAloud,
                 onStopReading = viewModel::stopReading,
                 onScanPrescription = viewModel::openScan,
+                reminderOutcome = state.reminderOutcome,
+                activeReminders = state.reminders.size,
+                onSetReminders = viewModel::setReminders,
+                onOpenReminders = viewModel::openReminders,
                 paperApplied = state.paperApplied,
                 actions = MedicineActions(
                     confirm = viewModel::confirmMedicine,
@@ -88,6 +122,8 @@ fun SamjhoApp(viewModel: SamjhoViewModel = viewModel()) {
             onRunDemo = viewModel::runDemo,
             onRecord = viewModel::startRecording,
             onScan = viewModel::openScan,
+            activeReminders = state.reminders.size,
+            onOpenReminders = viewModel::openReminders,
         )
     }
 }
