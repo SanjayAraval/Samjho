@@ -24,6 +24,16 @@ enum class FoodRelation { BEFORE_FOOD, AFTER_FOOD, EMPTY_STOMACH, WITH_FOOD }
 /** A detail the doctor never stated. Shown as "not mentioned" so it is never silently guessed. */
 enum class MissingField { TIMES_PER_DAY, TIME_OF_DAY, FOOD_RELATION, DURATION }
 
+/** A dosing detail a medicine can carry. Used to say which of them the doctor gave on a later line. */
+enum class Detail { TIMES_PER_DAY, TIME_OF_DAY, DOSE, FOOD, DURATION }
+
+/**
+ * Details the doctor said on a LATER line than the medicine's own name ("Take paracetamol for 3 days." ... "After
+ * food."). Each keeps its own transcript line, so the card can show that the food instruction was a separate
+ * sentence and never passes it off as part of the medicine's own line.
+ */
+data class Continuation(val line: Int, val details: List<Detail>)
+
 /** One way the speech recogniser thought an utterance might read, best first. */
 data class Hypothesis(val text: String, val confidence: Float? = null)
 
@@ -88,7 +98,15 @@ data class Medicine(
     val suggested: String = key,
     /** Present when the patient confirmed the name from the prescription. */
     val paper: PaperNote? = null,
+    /** Details the doctor gave on later lines. [sourceLines] is only the line that named the medicine. */
+    val continuations: List<Continuation> = emptyList(),
 ) {
+    /** The line a detail was said on if it came from a later sentence, or null if it is on the medicine's own line. */
+    fun continuedFrom(detail: Detail): Int? = continuations.firstOrNull { detail in it.details }?.line
+
+    /** Every line that speaks for this medicine: its own and the ones that added to it. */
+    val allLines: List<Int> get() = (sourceLines + continuations.map { it.line }).distinct()
+
     val missing: List<MissingField>
         get() = buildList {
             if (timesPerDay == null) add(MissingField.TIMES_PER_DAY)
@@ -157,7 +175,7 @@ data class Extraction(
      */
     val unnamedDosing: List<TranscriptLine>
         get() {
-            val named = medicines.filterNot { it.isRejected }.flatMap { it.sourceLines }.toSet()
+            val named = medicines.filterNot { it.isRejected }.flatMap { it.allLines }.toSet()
             return lines.filter { it.index in dosingLines && it.index !in named }
         }
 
@@ -193,7 +211,7 @@ data class Extraction(
     /** Every line index cited by at least one item. Used later to pick lines the LLM may look at. */
     val coveredLines: Set<Int>
         get() = buildSet {
-            medicines.forEach { addAll(it.sourceLines) }
+            medicines.forEach { addAll(it.allLines) }
             diagnosis.forEach { addAll(it.sourceLines) }
             avoid.forEach { addAll(it.sourceLines) }
             warnings.forEach { addAll(it.sourceLines) }

@@ -427,7 +427,7 @@ private fun MedicineCard(index: Int, m: Medicine, extraction: Extraction, t: Str
                 textDecoration = TextDecoration.LineThrough,
             )
             UndoLink(t) { actions.undo(index) }
-            DoctorWords(extraction, m.sourceLines, t)
+            DoctorWords(extraction, m.sourceLines, t, m.continuations)
             return@Panel
         }
 
@@ -470,11 +470,18 @@ private fun MedicineCard(index: Int, m: Medicine, extraction: Extraction, t: Str
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            m.timesPerDay?.let { Pill(t.timesPerDay(it), OkTint, primary) }
-            m.doseCount?.let { Pill(t.dose(it), OkTint, primary) }
-            m.timesOfDay.forEach { Pill(t.timeOfDay(it), OkTint, primary) }
-            m.foodRelation?.let { Pill(t.food(it), OkTint, primary) }
-            m.durationDays?.let { Pill(t.durationDays(it), OkTint, primary) }
+            // A detail the doctor said on a later line is marked with that line, so it never looks like part of the
+            // medicine's own sentence.
+            @Composable
+            fun detail(text: String, kind: com.packetloss.samjho.model.Detail) {
+                val from = m.continuedFrom(kind)
+                if (from == null) Pill(text, OkTint, primary) else Pill("$text · ${t.line(from)}", Color(0xFFF1F4F6), primary)
+            }
+            m.timesPerDay?.let { detail(t.timesPerDay(it), com.packetloss.samjho.model.Detail.TIMES_PER_DAY) }
+            m.doseCount?.let { detail(t.dose(it), com.packetloss.samjho.model.Detail.DOSE) }
+            m.timesOfDay.forEach { detail(t.timeOfDay(it), com.packetloss.samjho.model.Detail.TIME_OF_DAY) }
+            m.foodRelation?.let { detail(t.food(it), com.packetloss.samjho.model.Detail.FOOD) }
+            m.durationDays?.let { detail(t.durationDays(it), com.packetloss.samjho.model.Detail.DURATION) }
         }
 
         if (m.missing.isNotEmpty()) {
@@ -496,7 +503,7 @@ private fun MedicineCard(index: Int, m: Medicine, extraction: Extraction, t: Str
             UndoLink(t) { actions.undo(index) }
         }
 
-        DoctorWords(extraction, m.sourceLines, t)
+        DoctorWords(extraction, m.sourceLines, t, m.continuations)
     }
 
     if (choosing) {
@@ -581,8 +588,13 @@ private fun TranscriptPanel(extraction: Extraction, t: Strings) {
 // ------------------------------------------------------------------ pieces
 
 @Composable
-private fun DoctorWords(extraction: Extraction, lines: List<Int>, t: Strings) {
-    if (lines.isEmpty()) return
+private fun DoctorWords(
+    extraction: Extraction,
+    lines: List<Int>,
+    t: Strings,
+    continuations: List<com.packetloss.samjho.model.Continuation> = emptyList(),
+) {
+    if (lines.isEmpty() && continuations.isEmpty()) return
     var open by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         TextButton(onClick = { open = !open }, contentPadding = PaddingValues(0.dp)) {
@@ -598,6 +610,21 @@ private fun DoctorWords(extraction: Extraction, lines: List<Int>, t: Strings) {
                     Column(Modifier.padding(12.dp)) {
                         Text(t.line(line.index), fontSize = 12.sp, color = Muted)
                         Text(line.text, fontSize = 16.sp, color = Ink)
+                    }
+                }
+            }
+            // The details the doctor added in a sentence of their own, each with its own line and what it added.
+            continuations.forEach { c ->
+                val line = extraction.lines.getOrNull(c.line) ?: return@forEach
+                Surface(
+                    color = Color(0xFFEAF2F0),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("${t.line(line.index)} · ${t.saidLater}", fontSize = 12.sp, color = Muted)
+                        Text(line.text, fontSize = 16.sp, color = Ink)
+                        Text(c.details.joinToString(", ") { t.detailName(it) }, fontSize = 13.sp, color = Muted)
                     }
                 }
             }

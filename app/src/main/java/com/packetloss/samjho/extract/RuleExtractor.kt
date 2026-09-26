@@ -2,6 +2,8 @@ package com.packetloss.samjho.extract
 
 import com.packetloss.samjho.model.Basis
 import com.packetloss.samjho.model.Confirmation
+import com.packetloss.samjho.model.Continuation
+import com.packetloss.samjho.model.Detail
 import com.packetloss.samjho.model.Extraction
 import com.packetloss.samjho.model.FollowUp
 import com.packetloss.samjho.model.FoodRelation
@@ -51,6 +53,10 @@ object RuleExtractor {
         val warnings = mutableListOf<Note>()
         var followUp: FollowUp? = null
 
+        // The medicine the previous line(s) were about, so a bare "After food." can be attached to it. Only set when
+        // exactly one medicine was named, and cleared as soon as the doctor moves on to anything else.
+        var recent: Mention? = null
+
         for (line in lines) {
             val n = Normalize.text(line.text)
             val tokens = Normalize.tokens(line.text)
@@ -62,11 +68,14 @@ object RuleExtractor {
             val avoidItems = if (isWarning) emptyList() else avoidItems(n)
             avoidItems.forEach { avoid += Note(it, here) }
 
-            if (!isWarning && avoidItems.isEmpty()) {
-                diagnosisIn(n)?.let { diagnosis += Note(it, here) }
-            }
+            val diagnosisHere = if (!isWarning && avoidItems.isEmpty()) diagnosisIn(n) else null
+            diagnosisHere?.let { diagnosis += Note(it, here) }
 
-            if (followUp == null) followUp = followUpIn(n, line)
+            val followUpHere = followUpIn(n, line)
+            if (followUp == null) followUp = followUpHere
+
+            // A warning, avoid, diagnosis or follow-up line is that and nothing else; it is never a continuation.
+            val isCategory = isWarning || avoidItems.isNotEmpty() || diagnosisHere != null || followUpHere != null
 
             val top = medicinesOn(tokens)
             val found = if (top.any { Lexicon.isKey(it.key) }) top else top + alternateHearings(entries[line.index], top)
@@ -93,6 +102,12 @@ object RuleExtractor {
                         )
                     }
                 }
+                val slots = found.map { mergeKey(it) }.distinct()
+                recent = if (slots.size == 1) Mention(slots.single(), line.index) else null
+            } else if (isCategory) {
+                recent = null
+            } else {
+                recent = continueOnto(recent, line, tokens, n, medicines)
             }
         }
 
@@ -392,6 +407,88 @@ object RuleExtractor {
         val foodRelation: FoodRelation? = null,
         val durationDays: Int? = null,
     )
+
+    private fun Attributes.details(): List<Detail> = buildList {
+        if (timesPerDay != null) add(Detail.TIMES_PER_DAY)
+        if (timesOfDay.isNotEmpty()) add(Detail.TIME_OF_DAY)
+        if (doseCount != null) add(Detail.DOSE)
+        if (foodRelation != null) add(Detail.FOOD)
+        if (durationDays != null) add(Detail.DURATION)
+    }
+
+    private fun Medicine.has(detail: Detail): Boolean = when (detail) {
+        Detail.TIMES_PER_DAY -> timesPerDay != null
+        Detail.TIME_OF_DAY -> timesOfDay.isNotEmpty()
+        Detail.DOSE -> doseCount != null
+        Detail.FOOD -> foodRelation != null
+        Detail.DURATION -> durationDays != null
+    }
+
+    // ---------------------------------------------------------------- continuation lines
+
+    /** The medicine the last line(s) were about. [line] is the last line that spoke for it, its own or a continuation. */
+    private data class Mention(val slot: String, val line: Int)
+
+    /** How many lines after the medicine (or after its last continuation) a detail may still belong to it. */
+    private const val MAX_CONTINUATION_GAP = 2
+
+    /**
+     * Words that may appear in a continuation line besides the dosing words themselves: connectors, "take it",
+     * "you should", numbers are handled separately. Anything else means the line says something more than a dosing
+     * detail, and a line that says something more never attaches.
+     */
+    private val CONTINUATION_FILLER = setOf(
+        "and", "then", "also", "plus", "take", "taking", "it", "them", "this", "that", "the", "a", "an", "of", "to",
+        "for", "at", "in", "on", "with", "please", "ok", "okay", "every", "each", "per", "again", "only", "you",
+        "should", "must", "need", "needs", "have", "has", "keep", "use", "sleeping", "eating", "eat", "lunch", "dinner",
+        "breakfast", "day", "night", "bed",
+        "और", "फिर", "भी", "ही", "तो", "को", "में", "से", "का", "की", "के", "है", "हैं", "तक", "लेना", "लें",
+        "लीजिए", "लीजिये", "लेनी", "लेने", "खाना", "खा", "करें", "हर", "साथ", "सोने", "पेट", "खुराक", "ध्यान",
+    )
+
+    private fun allowedInContinuation(t: Normalize.Token): Boolean =
+        t.normalized in DOSING_WORDS || t.normalized in DOSAGE_FORMS || t.normalized in CONTINUATION_FILLER ||
+            Numbers.parse(t.normalized) != null
+
+    /**
+     * Doctors name the medicine, pause, and give the timing or food as a sentence of its own: "Take paracetamol for
+     * 3 days." "After food." This attaches such a line to the medicine just named, and only when all of these hold:
+     *  - the line names no medicine (the caller only asks when it found none) and is not a warning, avoid, diagnosis
+     *    or follow-up line, which win over attachment;
+     *  - every word in it is a dosing word, a number or a connector: a line with anything else does not attach, and
+     *    ends the association, because the doctor has moved on;
+     *  - it is within [MAX_CONTINUATION_GAP] lines of the medicine;
+     *  - none of the details it carries is already set on the medicine. Nothing the doctor said explicitly is ever
+     *    overwritten, and a line that contradicts the medicine is left alone rather than half applied.
+     * The detail keeps its own line, in [Medicine.continuations], so it is never shown as part of the medicine's own line.
+     * Returns the association to carry to the next line.
+     */
+    private fun continueOnto(
+        recent: Mention?,
+        line: TranscriptLine,
+        tokens: List<Normalize.Token>,
+        n: String,
+        medicines: MutableMap<String, Medicine>,
+    ): Mention? {
+        if (recent == null) return null
+        if (line.index - recent.line > MAX_CONTINUATION_GAP) return null
+        // Something other than a dosing detail was said: the doctor has moved on from that medicine.
+        if (!tokens.all { allowedInContinuation(it) }) return null
+        val attrs = attributesIn(n)
+        val details = attrs.details()
+        if (details.isEmpty()) return recent // only filler ("okay", "and then"): nothing to attach, nothing ended
+        val medicine = medicines[recent.slot] ?: return null
+        if (details.any { medicine.has(it) }) return recent // would overwrite what was said: leave it
+        medicines[recent.slot] = medicine.copy(
+            timesPerDay = medicine.timesPerDay ?: attrs.timesPerDay,
+            timesOfDay = medicine.timesOfDay.ifEmpty { attrs.timesOfDay },
+            doseCount = medicine.doseCount ?: attrs.doseCount,
+            foodRelation = medicine.foodRelation ?: attrs.foodRelation,
+            durationDays = medicine.durationDays ?: attrs.durationDays,
+            continuations = medicine.continuations + Continuation(line.index, details),
+        )
+        return Mention(recent.slot, line.index)
+    }
 
     private val FREQUENCY = listOf(
         // "बार" must be a whole word: without the guards "दोबारा" (again) reads as "दो बार" = twice.

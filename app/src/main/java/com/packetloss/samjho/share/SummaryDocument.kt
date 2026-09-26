@@ -97,7 +97,10 @@ object SummaryBuilder {
             m.paper != null -> t.confirmedFromPrescriptionHeardAs(PaperMerge.heardAs(m))
             else -> null
         }
-        return Entry(headline = name, details = details, note = listOfNotNull(source, missing).joinToString("\n").ifEmpty { null })
+        // Details said in a later, separate sentence are marked as such, so they are not read as part of the first one.
+        val later = m.continuations.flatMap { it.details }.distinct().takeIf { it.isNotEmpty() }
+            ?.let { ds -> "${t.saidLaterShort}: " + ds.joinToString(", ") { t.detailName(it) } }
+        return Entry(headline = name, details = details, note = listOfNotNull(source, later, missing).joinToString("\n").ifEmpty { null })
     }
 
     private fun notConfirmed(m: Medicine, t: Strings): Entry {

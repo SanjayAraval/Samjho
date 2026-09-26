@@ -91,6 +91,17 @@ class Strings(private val language: Language) {
 
     val heardAs = pick("सुना गया", "Heard as")
 
+    // ---- details the doctor said in a separate, later sentence
+    fun detailName(d: com.packetloss.samjho.model.Detail) = when (d) {
+        com.packetloss.samjho.model.Detail.TIMES_PER_DAY -> pick("दिन में कितनी बार", "how many times a day")
+        com.packetloss.samjho.model.Detail.TIME_OF_DAY -> pick("दिन का कौन सा समय", "what time of day")
+        com.packetloss.samjho.model.Detail.DOSE -> pick("कितनी गोली", "how much each time")
+        com.packetloss.samjho.model.Detail.FOOD -> pick("खाने से पहले या बाद", "before or after food")
+        com.packetloss.samjho.model.Detail.DURATION -> pick("कितने दिन", "for how many days")
+    }
+    val saidLater = pick("यह अलग वाक्य में, बाद में कहा गया", "Said in a separate sentence, after the medicine's own")
+    val saidLaterShort = pick("अलग वाक्य में कहा गया", "Said in a separate sentence")
+
     // ---- the prescription: it supplies the names, the doctor's words supply everything else
     val scanPrescription = pick("पर्चा स्कैन करें", "Scan the prescription")
     val scanPrescriptionHint = pick(
