@@ -1,6 +1,7 @@
 package com.packetloss.samjho.speech
 
 import android.util.Log
+import com.packetloss.samjho.model.Hypothesis
 import com.packetloss.samjho.model.Language
 
 enum class EngineId(val label: String) {
@@ -33,7 +34,9 @@ interface SpeechEngine {
         /** [detail] says how it is listening, e.g. "on-device", so the screen can show it honestly. */
         fun onListening(detail: String)
         fun onPartial(text: String)
-        fun onLine(text: String)
+
+        /** [text] is the top hypothesis; [hypotheses] is the recogniser's full N-best list, top first. */
+        fun onLine(text: String, hypotheses: List<Hypothesis>)
         fun onError(message: String)
     }
 }
@@ -49,6 +52,14 @@ object SpeechLog {
     fun line(engine: EngineId, language: Language, index: Int, text: String, mode: String = "") {
         val how = if (mode.isEmpty()) "" else " mode=$mode"
         Log.i(TAG, "engine=${engine.name}$how lang=$language line=${index + 1} text=\"$text\"")
+    }
+
+    /** Every N-best hypothesis for a line, so a run shows exactly what the recogniser considered. */
+    fun hypotheses(engine: EngineId, language: Language, index: Int, hypotheses: List<Hypothesis>) {
+        hypotheses.forEachIndexed { k, h ->
+            val conf = h.confidence?.let { " conf=%.2f".format(it) }.orEmpty()
+            Log.i(TAG, "engine=${engine.name} lang=$language line=${index + 1} hyp=${k + 1}/${hypotheses.size}$conf text=\"${h.text}\"")
+        }
     }
 
     fun error(engine: EngineId, language: Language, message: String) {

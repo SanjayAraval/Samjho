@@ -66,7 +66,7 @@ class VoskEngine(context: Context) : SpeechEngine {
                         lastPartial = ""
                         if (text.isEmpty()) return
                         SpeechLog.line(id, language, lineCount++, text)
-                        listener.onLine(text)
+                        listener.onLine(text, emptyList())
                     }
 
                     override fun onError(e: Exception?) {

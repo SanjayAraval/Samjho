@@ -1,5 +1,6 @@
 package com.packetloss.samjho.ui
 
+import com.packetloss.samjho.model.Basis
 import com.packetloss.samjho.model.FoodRelation
 import com.packetloss.samjho.model.Language
 import com.packetloss.samjho.model.MissingField
@@ -32,6 +33,36 @@ class Strings(private val language: Language) {
     val nothingHere = pick("डॉक्टर ने इस बारे में कुछ नहीं कहा।", "The doctor did not mention this.")
 
     val rulesOnly = pick("नियम आधारित", "RULES ONLY")
+    val aiChecking = pick("AI जाँच रहा है…", "AI CHECKING…")
+    val aiPlusRules = pick("AI + नियम", "AI + RULES")
+
+    val heardAs = pick("सुना गया", "Heard as")
+    val possibly = pick("शायद", "Possibly")
+    val unconfirmed = pick("अपुष्ट", "UNCONFIRMED")
+    val confirmed = pick("पुष्ट", "CONFIRMED")
+    val yes = pick("हाँ", "Yes")
+    val no = pick("नहीं", "No")
+    val chooseAnother = pick("दूसरा चुनें", "Choose another")
+    val chooseTitle = pick("कौन सी दवा?", "Which medicine?")
+    val undo = pick("वापस करें", "Undo")
+    val dismissed = pick("हटाया गया", "Dismissed")
+    val cancel = pick("रद्द करें", "Cancel")
+    val checkName = pick(
+        "नाम सुनने में गलती हो सकती है। डॉक्टर के शब्दों से मिलाकर पुष्टि करें।",
+        "The name may have been misheard. Check it against the doctor's words, then confirm.",
+    )
+
+    fun needConfirming(n: Int) = pick(
+        "$n दवा का नाम आपकी पुष्टि माँगता है",
+        if (n == 1) "1 medicine name needs your confirmation" else "$n medicine names need your confirmation",
+    )
+
+    fun basis(b: Basis, hypothesis: Int?) = when (b) {
+        Basis.HEARD -> ""
+        Basis.SOUNDS_LIKE -> pick("आवाज़ मिलती है", "Sounds like")
+        Basis.ALTERNATE_HEARING -> pick("दूसरी सुनवाई #${(hypothesis ?: 0) + 1}", "Alternative hearing #${(hypothesis ?: 0) + 1}")
+        Basis.AI_MATCHED -> pick("AI ने मिलाया", "AI matched")
+    }
     val offline = pick("पूरी तरह ऑफ़लाइन", "Fully offline")
     val disclaimer = pick(
         "Samjho सिर्फ़ वही दोहराता है जो डॉक्टर ने कहा। यह कोई चिकित्सा सलाह नहीं देता।",

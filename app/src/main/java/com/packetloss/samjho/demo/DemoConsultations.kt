@@ -47,5 +47,27 @@ object DemoConsultations {
         ),
     )
 
-    val ALL = listOf(HINDI, ENGLISH)
+    /**
+     * The English consult as the phone actually transcribed it offline, in airplane mode, from a
+     * real reading with the real drug names. Unedited: the mishearings ("thromison", "citrus in",
+     * "dollar 650", "crossing") are the point, since they show the confirm step at work.
+     */
+    val ENGLISH_AS_HEARD = DemoConsultation(
+        id = "en-as-heard",
+        label = "English: as the phone heard it",
+        language = Language.ENGLISH,
+        lines = listOf(
+            "Take the paracetamol tablet three times a day after food for 5 days",
+            "and the thromison in the morning on an empty stomach for 3 days",
+            "egg 1 tablet of citrus in at night",
+            "avoid cold water and fried food",
+            "the fever goes above 102 go to the hospital immediately",
+            "Come back after 5 days",
+            "Also dollar 650",
+            "and crossing if the fever comes back",
+            "Bluetooth",
+        ),
+    )
+
+    val ALL = listOf(HINDI, ENGLISH, ENGLISH_AS_HEARD)
 }

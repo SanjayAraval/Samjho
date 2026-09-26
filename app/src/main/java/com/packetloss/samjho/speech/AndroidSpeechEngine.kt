@@ -12,6 +12,7 @@ import android.speech.RecognitionSupportCallback
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import com.packetloss.samjho.extract.Lexicon
+import com.packetloss.samjho.model.Hypothesis
 import com.packetloss.samjho.model.Language
 
 /**
@@ -117,7 +118,7 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
         putExtra(RecognizerIntent.EXTRA_LANGUAGE, tag)
         putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
         putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-        putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, MAX_HYPOTHESES)
         putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, appContext.packageName)
         putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, PAUSE_MS)
         putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, PAUSE_MS)
@@ -167,10 +168,13 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
             if (mine != session) return
             errorStreak = 0
             lastPartial = ""
-            val text = firstResult(results)?.trim().orEmpty()
+            val hypotheses = hypothesesOf(results)
+            val text = hypotheses.firstOrNull()?.text?.trim().orEmpty()
             if (text.isNotEmpty()) {
-                SpeechLog.line(id, language, lineCount++, text, mode.label)
-                listener?.onLine(text)
+                SpeechLog.line(id, language, lineCount, text, mode.label)
+                SpeechLog.hypotheses(id, language, lineCount, hypotheses)
+                lineCount++
+                listener?.onLine(text, hypotheses)
             }
             restart(mine, 60)
         }
@@ -240,6 +244,18 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
     private fun firstResult(bundle: Bundle?): String? =
         bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
 
+    /**
+     * The recogniser's whole N-best list, best first, with confidence where it gives one. A score
+     * below zero means "not provided" (some recognisers send -1), so it is dropped, not kept.
+     */
+    private fun hypothesesOf(bundle: Bundle?): List<Hypothesis> {
+        val texts = bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
+        val scores = bundle?.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)
+        return texts.mapIndexedNotNull { i, t ->
+            if (t.isBlank()) null else Hypothesis(t.trim(), scores?.getOrNull(i)?.takeIf { it >= 0f })
+        }
+    }
+
     private fun describe(error: Int): String = when (error) {
         SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE ->
             "The ${languageTag(language)} speech pack is not available offline on this phone. Pick Vosk."
@@ -264,6 +280,7 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
     companion object {
         private const val PAUSE_MS = 1500L
         private const val MAX_ERROR_STREAK = 8
+        private const val MAX_HYPOTHESES = 5
         private const val REOPEN_DELAY_MS = 600L
     }
 }

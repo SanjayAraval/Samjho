@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.packetloss.samjho.ui.HomeScreen
+import com.packetloss.samjho.ui.MedicineActions
 import com.packetloss.samjho.ui.RecordScreen
 import com.packetloss.samjho.ui.ResultScreen
 import com.packetloss.samjho.ui.SamjhoTheme
@@ -39,6 +40,13 @@ fun SamjhoApp(viewModel: SamjhoViewModel = viewModel()) {
                 extraction = extraction,
                 ruleMillis = state.ruleMillis,
                 sourceLabel = state.sourceLabel,
+                ai = state.ai,
+                actions = MedicineActions(
+                    confirm = viewModel::confirmMedicine,
+                    reject = viewModel::rejectMedicine,
+                    undo = viewModel::undoMedicine,
+                    choose = viewModel::chooseMedicine,
+                ),
                 onBack = viewModel::back,
             )
         }

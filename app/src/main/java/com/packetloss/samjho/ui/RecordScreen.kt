@@ -84,7 +84,7 @@ fun RecordScreen(
                 recording.lines.forEachIndexed { i, line ->
                     Panel {
                         Text("${i + 1}", fontSize = 12.sp, color = Muted)
-                        Text(line, fontSize = 18.sp)
+                        Text(line.text, fontSize = 18.sp)
                     }
                 }
                 if (recording.partial.isNotBlank()) {

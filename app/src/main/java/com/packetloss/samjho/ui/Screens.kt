@@ -11,7 +11,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import com.packetloss.samjho.model.Language
 import com.packetloss.samjho.speech.EngineId
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.ui.text.style.TextDecoration
+import com.packetloss.samjho.AiState
+import com.packetloss.samjho.extract.Lexicon
+import com.packetloss.samjho.model.Basis
+import com.packetloss.samjho.model.Provenance
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -203,6 +210,8 @@ fun ResultScreen(
     extraction: Extraction,
     ruleMillis: Long,
     sourceLabel: String,
+    ai: AiState,
+    actions: MedicineActions,
     onBack: () -> Unit,
 ) {
     val t = remember(extraction.language) { Strings(extraction.language) }
@@ -221,11 +230,23 @@ fun ResultScreen(
                     Text("← वापस / Back", fontSize = 16.sp)
                 }
                 Spacer(Modifier.weight(1f))
-                Pill(t.rulesOnly, OkTint, MaterialTheme.colorScheme.primary)
+                when {
+                    ai is AiState.Checking -> Pill(t.aiChecking, AvoidTint, AvoidInk)
+                    ai is AiState.Done && ai.added > 0 -> Pill(t.aiPlusRules, OkTint, MaterialTheme.colorScheme.primary)
+                    else -> Pill(t.rulesOnly, OkTint, MaterialTheme.colorScheme.primary)
+                }
             }
 
             Text(sourceLabel, fontSize = 13.sp, color = Muted)
             Text("${ruleMillis} ms", fontSize = 13.sp, color = Muted)
+
+            val toConfirm = extraction.medicines.count { it.isUnconfirmed }
+            if (toConfirm > 0) {
+                Panel(bg = AvoidTint) {
+                    Text(t.needConfirming(toConfirm), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = AvoidInk)
+                    Text(t.checkName, fontSize = 14.sp, color = AvoidInk)
+                }
+            }
 
             if (extraction.diagnosis.isNotEmpty()) {
                 NoteSection(t.diagnosis, extraction.diagnosis, extraction, t, Color.White, Ink)
@@ -233,8 +254,8 @@ fun ResultScreen(
 
             if (extraction.medicines.isNotEmpty()) {
                 SectionTitle(t.medicines)
-                extraction.medicines.forEach { m ->
-                    key(m.key) { MedicineCard(m, extraction, t) }
+                extraction.medicines.forEachIndexed { i, m ->
+                    key(i) { MedicineCard(i, m, extraction, t, actions) }
                 }
             }
 
@@ -275,21 +296,60 @@ fun ResultScreen(
     }
 }
 
+/**
+ * A medicine is only presented as a fact when the recogniser produced its own name. Anything
+ * inferred (sounds like, an alternative hearing, an AI match) shows the raw word that was heard,
+ * says plainly that it is unconfirmed, and waits for the patient's answer.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun MedicineCard(m: Medicine, extraction: Extraction, t: Strings) {
-    Panel {
-        Text(m.name, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+private fun MedicineCard(index: Int, m: Medicine, extraction: Extraction, t: Strings, actions: MedicineActions) {
+    var choosing by remember { mutableStateOf(false) }
+    val inferred = m.basis != Basis.HEARD
+    val primary = MaterialTheme.colorScheme.primary
+
+    Panel(bg = if (m.isRejected) Color(0xFFEFF2F4) else if (m.isUnconfirmed) AvoidTint else Color.White) {
+        if (m.isRejected) {
+            Text(
+                "${t.dismissed}: ${t.heardAs} “${m.name}”",
+                fontSize = 16.sp,
+                color = Muted,
+                textDecoration = TextDecoration.LineThrough,
+            )
+            TextButton(onClick = { actions.undo(index) }, contentPadding = PaddingValues(0.dp)) { Text(t.undo) }
+            DoctorWords(extraction, m.sourceLines, t)
+            return@Panel
+        }
+
+        if (inferred) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (m.isUnconfirmed) Pill(t.unconfirmed, WarnTint, WarnInk) else Pill(t.confirmed, OkTint, primary)
+                Pill(t.basis(m.basis, m.hypothesis), Color(0xFFEDEFF2), Muted)
+                if (m.provenance == Provenance.AI) Pill("AI", Color(0xFFEDEFF2), Muted)
+            }
+        }
+
+        when {
+            m.isUnconfirmed -> {
+                Text("${t.heardAs} “${m.name}”", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text("${t.possibly}: ${Lexicon.display(m.key)}", fontSize = 17.sp, color = AvoidInk)
+            }
+            inferred -> {
+                Text(Lexicon.display(m.key), fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                Text("${t.heardAs} “${m.name}”", fontSize = 14.sp, color = Muted)
+            }
+            else -> Text(m.name, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+        }
 
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            m.timesPerDay?.let { Pill(t.timesPerDay(it), OkTint, MaterialTheme.colorScheme.primary) }
-            m.doseCount?.let { Pill(t.dose(it), OkTint, MaterialTheme.colorScheme.primary) }
-            m.timesOfDay.forEach { Pill(t.timeOfDay(it), OkTint, MaterialTheme.colorScheme.primary) }
-            m.foodRelation?.let { Pill(t.food(it), OkTint, MaterialTheme.colorScheme.primary) }
-            m.durationDays?.let { Pill(t.durationDays(it), OkTint, MaterialTheme.colorScheme.primary) }
+            m.timesPerDay?.let { Pill(t.timesPerDay(it), OkTint, primary) }
+            m.doseCount?.let { Pill(t.dose(it), OkTint, primary) }
+            m.timesOfDay.forEach { Pill(t.timeOfDay(it), OkTint, primary) }
+            m.foodRelation?.let { Pill(t.food(it), OkTint, primary) }
+            m.durationDays?.let { Pill(t.durationDays(it), OkTint, primary) }
         }
 
         if (m.missing.isNotEmpty()) {
@@ -301,9 +361,47 @@ private fun MedicineCard(m: Medicine, extraction: Extraction, t: Strings) {
             Text(t.askDoctor, fontSize = 14.sp, color = Muted)
         }
 
+        if (m.isUnconfirmed) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = { actions.confirm(index) }, shape = RoundedCornerShape(12.dp)) { Text(t.yes) }
+                OutlinedButton(onClick = { actions.reject(index) }, shape = RoundedCornerShape(12.dp)) { Text(t.no) }
+                TextButton(onClick = { choosing = true }) { Text(t.chooseAnother) }
+            }
+        } else if (inferred) {
+            TextButton(onClick = { actions.undo(index) }, contentPadding = PaddingValues(0.dp)) { Text(t.undo) }
+        }
+
         DoctorWords(extraction, m.sourceLines, t)
     }
+
+    if (choosing) {
+        val options = m.candidates.filter { it != m.key }
+        AlertDialog(
+            onDismissRequest = { choosing = false },
+            title = { Text(t.chooseTitle) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("${t.heardAs} “${m.name}”", fontSize = 14.sp, color = Muted)
+                    options.forEach { key ->
+                        TextButton(onClick = { choosing = false; actions.choose(index, key) }) {
+                            Text(Lexicon.display(key), fontSize = 18.sp)
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { choosing = false }) { Text(t.cancel) } },
+        )
+    }
 }
+
+/** What the patient can do with an unconfirmed medicine. Every answer is theirs; nothing is automatic. */
+class MedicineActions(
+    val confirm: (Int) -> Unit,
+    val reject: (Int) -> Unit,
+    val undo: (Int) -> Unit,
+    val choose: (Int, String) -> Unit,
+)
 
 @Composable
 private fun NoteSection(

@@ -1,13 +1,17 @@
 package com.packetloss.samjho.extract
 
+import com.packetloss.samjho.model.Basis
+import com.packetloss.samjho.model.Confirmation
 import com.packetloss.samjho.model.Extraction
 import com.packetloss.samjho.model.FollowUp
 import com.packetloss.samjho.model.FoodRelation
 import com.packetloss.samjho.model.Language
 import com.packetloss.samjho.model.Medicine
 import com.packetloss.samjho.model.Note
+import com.packetloss.samjho.model.Provenance
 import com.packetloss.samjho.model.TimeOfDay
 import com.packetloss.samjho.model.TranscriptLine
+import com.packetloss.samjho.model.Utterance
 
 /**
  * Deterministic, offline, no model: turns a transcript into instructions by pattern alone.
@@ -26,10 +30,15 @@ object RuleExtractor {
 
     private val N = "(?:${Numbers.GROUP})"
 
-    fun extract(rawLines: List<String>): Extraction {
-        val lines = rawLines.mapIndexed { i, t -> TranscriptLine(i, t.trim()) }
-            .filter { it.text.isNotEmpty() }
-            .mapIndexed { i, l -> TranscriptLine(i, l.text) }
+    fun extract(rawLines: List<String>): Extraction = extractUtterances(rawLines.map { Utterance(it) })
+
+    /**
+     * [utterances] carry each sentence's N-best hypotheses. The top one is the displayed line;
+     * lower ones are only ever consulted to find a medicine the top one missed.
+     */
+    fun extractUtterances(utterances: List<Utterance>): Extraction {
+        val entries = utterances.map { it.copy(text = it.text.trim()) }.filter { it.text.isNotEmpty() }
+        val lines = entries.mapIndexed { i, u -> TranscriptLine(i, u.text) }
 
         val medicines = LinkedHashMap<String, Medicine>()
         val diagnosis = mutableListOf<Note>()
@@ -54,24 +63,21 @@ object RuleExtractor {
 
             if (followUp == null) followUp = followUpIn(n, line)
 
-            val found = medicinesOn(tokens)
+            val top = medicinesOn(tokens)
+            val found = if (top.any { Lexicon.isKey(it.key) }) top else top + alternateHearings(entries[line.index], top)
             if (found.isNotEmpty()) {
                 val attrs = attributesIn(n)
                 for (f in found) {
                     val existing = medicines[f.key]
                     medicines[f.key] = if (existing == null) {
-                        Medicine(
-                            name = f.name,
-                            key = f.key,
-                            timesPerDay = attrs.timesPerDay,
-                            timesOfDay = attrs.timesOfDay,
-                            doseCount = attrs.doseCount,
-                            foodRelation = attrs.foodRelation,
-                            durationDays = attrs.durationDays,
-                            sourceLines = here,
-                        )
+                        newMedicine(f, attrs, here)
                     } else {
+                        val clearer = existing.basis != Basis.HEARD && f.basis == Basis.HEARD
                         existing.copy(
+                            name = if (clearer) f.name else existing.name,
+                            basis = if (clearer) Basis.HEARD else existing.basis,
+                            hypothesis = if (clearer) null else existing.hypothesis,
+                            confirmation = if (clearer) Confirmation.NOT_NEEDED else existing.confirmation,
                             timesPerDay = existing.timesPerDay ?: attrs.timesPerDay,
                             timesOfDay = existing.timesOfDay.ifEmpty { attrs.timesOfDay },
                             doseCount = existing.doseCount ?: attrs.doseCount,
@@ -111,7 +117,91 @@ object RuleExtractor {
 
     // ---------------------------------------------------------------- medicines
 
-    private data class Found(val key: String, val name: String)
+    private data class Found(val key: String, val name: String, val basis: Basis, val hypothesis: Int? = null)
+
+    /**
+     * How sure a spoken word's identity is: only a word spelled exactly like a known form counts as
+     * heard outright. A word that is merely a slip or a sound away from one is [Basis.SOUNDS_LIKE]
+     * and must be confirmed by the patient.
+     */
+    private fun identify(normalized: String): Pair<String, Basis>? {
+        Lexicon.exact(normalized)?.let { return it to Basis.HEARD }
+        Lexicon.match(normalized)?.let { return it to Basis.SOUNDS_LIKE }
+        return null
+    }
+
+    private fun newMedicine(f: Found, attrs: Attributes, lines: List<Int>) = Medicine(
+        name = f.name,
+        key = f.key,
+        timesPerDay = attrs.timesPerDay,
+        timesOfDay = attrs.timesOfDay,
+        doseCount = attrs.doseCount,
+        foodRelation = attrs.foodRelation,
+        durationDays = attrs.durationDays,
+        sourceLines = lines,
+        basis = f.basis,
+        hypothesis = f.hypothesis,
+        confirmation = if (f.basis == Basis.HEARD) Confirmation.NOT_NEEDED else Confirmation.UNCONFIRMED,
+        candidates = if (f.basis == Basis.HEARD) emptyList() else candidatesFor(f),
+    )
+
+    /** The matched medicine first, then its nearest sound-alikes, for the patient's "choose another". */
+    private fun candidatesFor(f: Found): List<String> =
+        (listOf(f.key) + Lexicon.closest(Normalize.text(f.name), 5).map { it.key }).distinct().take(5)
+
+    /** True when the words carry any dosing detail: a frequency, a time, a dose, food or a duration. */
+    internal fun hasDosing(text: String): Boolean {
+        val a = attributesIn(Normalize.text(text))
+        return a.timesPerDay != null || a.timesOfDay.isNotEmpty() || a.doseCount != null ||
+            a.foodRelation != null || a.durationDays != null
+    }
+
+    /** Words in [text] that could be a medicine name at all: not grammar, symptoms, numbers or forms. */
+    internal fun nameableTokens(text: String): List<Normalize.Token> =
+        Normalize.tokens(text).filterNot { blocked(it) }
+
+    /** Builds the medicine for an item found on a single line, with its dosing read from that line. */
+    internal fun medicineOnLine(
+        line: TranscriptLine,
+        name: String,
+        key: String,
+        basis: Basis,
+        provenance: Provenance,
+        candidates: List<String>,
+    ): Medicine {
+        val attrs = attributesIn(Normalize.text(line.text))
+        return newMedicine(Found(key, name, basis), attrs, listOf(line.index)).copy(
+            provenance = provenance,
+            candidates = candidates,
+        )
+    }
+
+    /**
+     * Lower-ranked hearings of the same words, searched only when the top hearing named no known
+     * medicine. A hit needs a confident lexicon match (an exact or near-exact spelling, or an
+     * identical consonant skeleton) with dosing words beside it in that same hearing; nothing
+     * else is accepted, so a stray N-best word can't become a medicine.
+     */
+    private fun alternateHearings(utterance: Utterance, alreadyFound: List<Found>): List<Found> {
+        val have = alreadyFound.map { it.key }.toSet()
+        // Only the best-ranked hypothesis that yields anything is used, never a mix of several:
+        // different hearings of one sentence must not add up to several different medicines.
+        for ((k, hypothesis) in utterance.hypotheses.withIndex()) {
+            if (k == 0) continue
+            val tokens = Normalize.tokens(hypothesis.text)
+            val hits = LinkedHashMap<String, Found>()
+            tokens.forEachIndexed { i, t ->
+                if (blocked(t) || !nearDosing(tokens, i)) return@forEachIndexed
+                val key = Lexicon.exact(t.normalized)
+                    ?: Lexicon.match(t.normalized)
+                    ?: Lexicon.matchPhonetic(t.normalized, maxRank = 0)
+                    ?: return@forEachIndexed
+                if (key !in have) hits.putIfAbsent(key, Found(key, t.display, Basis.ALTERNATE_HEARING, hypothesis = k))
+            }
+            if (hits.isNotEmpty()) return hits.values.toList()
+        }
+        return emptyList()
+    }
 
     private val DOSAGE_FORMS = setOf(
         "गोली", "गोलियां", "गोलिया", "टेबलेट", "टैबलेट", "कैप्सूल", "सिरप", "सीरप",
@@ -168,8 +258,8 @@ object RuleExtractor {
 
         tokens.forEach { t ->
             if (!blocked(t)) {
-                Lexicon.match(t.normalized)?.let { key ->
-                    out.putIfAbsent(key, Found(key, t.display))
+                identify(t.normalized)?.let { (key, basis) ->
+                    out.putIfAbsent(key, Found(key, t.display, basis))
                 }
             }
         }
@@ -181,10 +271,11 @@ object RuleExtractor {
             val namedAfter = tokens.getOrNull(u + 1)?.normalized == "of"
             val candidate = (if (namedAfter) neighbourAfter(tokens, u) else neighbourBefore(tokens, u) ?: neighbourAfter(tokens, u))
                 ?: return@forEachIndexed
-            val key = Lexicon.match(candidate.normalized)
-                ?: Lexicon.matchPhonetic(candidate.normalized)
-                ?: candidate.normalized
-            out.putIfAbsent(key, Found(key, candidate.display))
+            val known = identify(candidate.normalized)
+                ?: Lexicon.matchPhonetic(candidate.normalized)?.let { it to Basis.SOUNDS_LIKE }
+            // An unknown name is kept exactly as spoken and is not a claim about which drug it is.
+            val (key, basis) = known ?: (candidate.normalized to Basis.HEARD)
+            out.putIfAbsent(key, Found(key, candidate.display, basis))
         }
 
         // Brand names the speech model mangled, away from any dosage-form word: accepted only
@@ -192,7 +283,7 @@ object RuleExtractor {
         tokens.forEachIndexed { i, t ->
             if (blocked(t) || !nearDosing(tokens, i)) return@forEachIndexed
             val key = Lexicon.matchPhonetic(t.normalized) ?: return@forEachIndexed
-            out.putIfAbsent(key, Found(key, t.display))
+            out.putIfAbsent(key, Found(key, t.display, Basis.SOUNDS_LIKE))
         }
 
         return out.values.toList()

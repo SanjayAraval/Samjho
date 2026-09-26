@@ -79,7 +79,7 @@ object Lexicon {
      * Every accepted match needs the same first consonant, and it returns null when the best
      * tier is ambiguous between two different medicines rather than picking one.
      */
-    fun matchPhonetic(normalizedToken: String): String? {
+    fun matchPhonetic(normalizedToken: String, maxRank: Int = 2): String? {
         val token = Phonetic.skeleton(normalizedToken)
         if (token.length < 2) return null
 
@@ -93,7 +93,41 @@ object Lexicon {
             }
             if (rank == bestRank) keys += c.key
         }
-        return keys.singleOrNull()
+        return if (bestRank <= maxRank) keys.singleOrNull() else null
+    }
+
+    private val KEYS: Set<String> = ENTRIES.map { it.first }.toSet()
+
+    /** True when [key] is one of the lexicon's medicines, rather than an unknown brand kept as spoken. */
+    fun isKey(key: String): Boolean = key in KEYS
+
+    /** The lexicon medicine for a word spelled exactly like a known form, or null. No fuzziness at all. */
+    fun exact(normalizedToken: String): String? = BY_FORM[normalizedToken]
+
+    fun keys(): List<String> = ENTRIES.map { it.first }
+
+    fun display(key: String): String = if (key == "ors") "ORS" else key.replaceFirstChar { it.uppercase() }
+
+    /** A lexicon medicine and how far its sound is from a heard word: 0 identical, 1 unrelated. */
+    data class Sound(val key: String, val distance: Double)
+
+    private val KEY_SKELETONS: Map<String, List<String>> = SKELETONS
+        .groupBy({ it.key }, { it.skeleton })
+
+    /**
+     * Lexicon medicines ordered by how close their consonant skeleton is to [normalizedToken],
+     * closest first, keeping only those within [maxDistance]. Words with fewer than three
+     * consonants carry too little sound to compare, so they have no neighbours at all.
+     */
+    fun closest(normalizedToken: String, limit: Int, maxDistance: Double = 1.0): List<Sound> {
+        val token = Phonetic.skeleton(normalizedToken)
+        if (token.length < 3) return emptyList()
+        return KEY_SKELETONS.mapNotNull { (key, skeletons) ->
+            val best = skeletons.filter { it.length >= 3 }.minOfOrNull { s ->
+                Normalize.editDistance(token, s).toDouble() / maxOf(token.length, s.length)
+            } ?: return@mapNotNull null
+            if (best <= maxDistance) Sound(key, best) else null
+        }.sortedWith(compareBy({ it.distance }, { it.key })).take(limit)
     }
 
     /** 0 = same skeleton, 1 = clipped prefix, 2 = one slip. Lower is a tighter match. */
