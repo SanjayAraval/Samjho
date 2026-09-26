@@ -162,11 +162,23 @@ object RuleExtractor {
     private fun candidatesFor(f: Found): List<String> =
         (listOf(f.key) + Lexicon.closest(Normalize.text(f.name), 5).map { it.key }).distinct().take(5)
 
-    /** True when the words carry any dosing detail: a frequency, a time, a dose, food or a duration. */
+    /** The patient talking about themselves ("I have had fever for two days"), which is never dosing. */
+    private val PATIENT_SPEECH = Regex("(?:^|\\s)(?:i|my|me|मुझे|मेरा|मेरी|मैं)(?:\\s|$)")
+
+    /**
+     * True when the words read as a dosing instruction: a stated frequency, or at least two kinds of
+     * dosing detail (a time, a dose, food, a duration). One kind alone is not enough, because "for
+     * two days" or "at night" is just as often a symptom ("I have had fever for two days"), and
+     * first-person speech is the patient describing themselves, not the doctor's instruction.
+     */
     internal fun hasDosing(text: String): Boolean {
-        val a = attributesIn(Normalize.text(text))
-        return a.timesPerDay != null || a.timesOfDay.isNotEmpty() || a.doseCount != null ||
-            a.foodRelation != null || a.durationDays != null
+        val n = Normalize.text(text)
+        if (PATIENT_SPEECH.containsMatchIn(n)) return false
+        val a = attributesIn(n)
+        val kinds = listOf(
+            a.timesOfDay.isNotEmpty(), a.doseCount != null, a.foodRelation != null, a.durationDays != null,
+        ).count { it }
+        return a.timesPerDay != null || kinds >= 2
     }
 
     /** Words in [text] that could be a medicine name at all: not grammar, symptoms, numbers or forms. */
