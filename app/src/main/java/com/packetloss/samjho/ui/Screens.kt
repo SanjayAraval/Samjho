@@ -5,30 +5,8 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
-import androidx.compose.material3.Checkbox
-import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.ContextCompat
-import com.packetloss.samjho.model.Language
-import com.packetloss.samjho.speech.EngineId
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.ui.text.style.TextDecoration
-import com.packetloss.samjho.AiState
-import com.packetloss.samjho.llm.LlmStatus
-import com.packetloss.samjho.llm.LlmStatusText
-import com.packetloss.samjho.share.SummaryBuilder
-import com.packetloss.samjho.share.SummarySharer
-import com.packetloss.samjho.voice.Speaker
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import com.packetloss.samjho.extract.Lexicon
-import com.packetloss.samjho.model.Basis
-import com.packetloss.samjho.model.Confirmation
-import com.packetloss.samjho.model.Provenance
-import com.packetloss.samjho.scan.PaperMerge
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -42,34 +20,65 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import com.packetloss.samjho.AiState
 import com.packetloss.samjho.demo.DemoConsultation
 import com.packetloss.samjho.demo.DemoConsultations
+import com.packetloss.samjho.extract.Lexicon
+import com.packetloss.samjho.llm.LlmStatus
+import com.packetloss.samjho.model.Basis
+import com.packetloss.samjho.model.Confirmation
+import com.packetloss.samjho.model.Continuation
 import com.packetloss.samjho.model.Extraction
+import com.packetloss.samjho.model.Language
 import com.packetloss.samjho.model.Medicine
-import com.packetloss.samjho.model.Note
+import com.packetloss.samjho.model.Provenance
+import com.packetloss.samjho.scan.PaperMerge
+import com.packetloss.samjho.share.SummaryBuilder
+import com.packetloss.samjho.share.SummarySharer
+import com.packetloss.samjho.speech.EngineId
+import com.packetloss.samjho.voice.Speaker
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 // ------------------------------------------------------------------ home
 
+/**
+ * One thing to do, first: record the consultation. Everything else is smaller and below it. The screen is shown in one
+ * language, the one the toggle at the top says, and that is also the language the consultation is recorded in.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun HomeScreen(
     engine: EngineId,
@@ -80,24 +89,30 @@ fun HomeScreen(
     onRecord: (Language) -> Unit,
     onScan: () -> Unit,
 ) {
+    val lang = UiLanguage.resolve()
+    val t = remember(lang) { Strings(lang) }
     val context = LocalContext.current
     var consent by remember { mutableStateOf(false) }
+    var needConsent by remember { mutableStateOf(false) }
     var pending by remember { mutableStateOf<Language?>(null) }
     var micDenied by remember { mutableStateOf(false) }
+    var showDemos by remember { mutableStateOf(false) }
+    var showSpeech by remember { mutableStateOf(false) }
     val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        val lang = pending
+        val asked = pending
         pending = null
-        if (granted && lang != null) onRecord(lang) else micDenied = true
+        if (granted && asked != null) onRecord(asked) else micDenied = true
     }
-    fun record(lang: Language) {
+    fun record(language: Language) {
         micDenied = false
         val has = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
-        if (has) onRecord(lang) else {
-            pending = lang
+        if (has) onRecord(language) else {
+            pending = language
             askMic.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
+    val reason = unavailable[lang]
 
     Surface(color = MaterialTheme.colorScheme.background) {
         Column(
@@ -107,128 +122,101 @@ fun HomeScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(24.dp),
         ) {
-            Spacer(Modifier.height(40.dp))
-            Text(
-                "Samjho",
-                fontSize = 46.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text("डॉक्टर ने जो कहा, आपकी भाषा में।", fontSize = 19.sp, color = Ink)
-            Text("What the doctor said, explained back to you.", fontSize = 16.sp, color = Muted)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { LanguageToggle(lang) }
 
-            Spacer(Modifier.height(18.dp))
-            Pill("पूरी तरह ऑफ़लाइन · Fully offline", OkTint, MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(24.dp))
+            Text("Samjho", fontSize = 46.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.height(6.dp))
-            Text(LlmStatusText.line(llm), fontSize = 13.sp, color = Muted)
+            Text(t.tagline, fontSize = 18.sp, color = Ink)
 
-            Spacer(Modifier.height(28.dp))
-            Text(
-                "बातचीत रिकॉर्ड करें · Record a consultation",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
-                color = Muted,
-            )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(36.dp))
+            Button(
+                onClick = {
+                    if (!consent) needConsent = true else record(lang)
+                },
+                enabled = reason == null,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(84.dp),
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Text(t.recordConsultation, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.height(6.dp))
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .clickable { consent = !consent },
+                    .clickable { consent = !consent; needConsent = false },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Checkbox(checked = consent, onCheckedChange = { consent = it })
-                Text(
-                    "डॉक्टर ने रिकॉर्डिंग की अनुमति दी है\nThe doctor has agreed to be recorded",
-                    fontSize = 14.sp,
-                    color = Ink,
-                )
+                Checkbox(checked = consent, onCheckedChange = { consent = it; needConsent = false })
+                Text(t.consent, fontSize = 15.sp, color = Ink)
             }
-            Spacer(Modifier.height(8.dp))
-            Text("बोली पहचान · Speech engine", fontSize = 13.sp, color = Muted)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                EngineId.entries.forEach { id ->
-                    FilterChip(
-                        selected = id == engine,
-                        onClick = { onSelectEngine(id) },
-                        label = { Text(id.label, fontSize = 14.sp) },
-                    )
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-            Language.entries.forEach { lang ->
-                val reason = unavailable[lang]
-                Button(
-                    onClick = { record(lang) },
-                    enabled = consent && reason == null,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(58.dp),
-                    shape = RoundedCornerShape(14.dp),
-                ) {
-                    Text(
-                        if (lang == Language.HINDI) "🎙  हिंदी में रिकॉर्ड करें" else "🎙  Record in English",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
-                }
-                if (reason != null) {
-                    Text(reason, fontSize = 13.sp, color = WarnInk, modifier = Modifier.padding(top = 4.dp))
-                }
-                Spacer(Modifier.height(10.dp))
-            }
-            if (micDenied) {
-                Text(
-                    "माइक की अनुमति चाहिए · Microphone permission is needed to record.",
-                    fontSize = 14.sp,
-                    color = WarnInk,
-                )
-            }
+            if (needConsent) Text(t.consentNeeded, fontSize = 14.sp, color = WarnInk)
+            if (reason != null) Text(reason, fontSize = 13.sp, color = WarnInk, modifier = Modifier.padding(top = 4.dp))
+            if (micDenied) Text(t.micNeeded, fontSize = 14.sp, color = WarnInk)
 
+            Spacer(Modifier.height(24.dp))
             OutlinedButton(
                 onClick = onScan,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(58.dp),
+                    .height(54.dp),
                 shape = RoundedCornerShape(14.dp),
             ) {
-                Text("📷  पर्चा स्कैन · Scan prescription", fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                Text(t.scanShort, fontSize = 17.sp, fontWeight = FontWeight.Medium)
             }
 
-            Spacer(Modifier.height(28.dp))
-            Text(
-                "या नमूना बातचीत देखें · Or try a demo consultation",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
-                color = Muted,
-            )
-            Spacer(Modifier.height(12.dp))
-            DemoConsultations.ALL.forEach { demo ->
-                Button(
-                    onClick = { onRunDemo(demo) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(62.dp),
-                    shape = RoundedCornerShape(14.dp),
-                ) {
-                    Text(demo.label, fontSize = 18.sp, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = { showDemos = !showDemos }, contentPadding = PaddingValues(0.dp)) {
+                Text((if (showDemos) "▾  " else "▸  ") + t.demoHeading, fontSize = 15.sp)
+            }
+            if (showDemos) {
+                DemoConsultations.ALL.forEach { demo ->
+                    OutlinedButton(
+                        onClick = { onRunDemo(demo) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Text(demo.label, fontSize = 16.sp)
+                    }
+                    Spacer(Modifier.height(8.dp))
                 }
-                Spacer(Modifier.height(12.dp))
+            }
+
+            // Which speech recogniser to use is rarely needed, so it sits behind one small control.
+            TextButton(onClick = { showSpeech = !showSpeech }, contentPadding = PaddingValues(0.dp)) {
+                Text((if (showSpeech) "▾  " else "▸  ") + t.speechOptions, fontSize = 14.sp, color = Muted)
+            }
+            if (showSpeech) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    EngineId.entries.forEach { id ->
+                        FilterChip(
+                            selected = id == engine,
+                            onClick = { onSelectEngine(id) },
+                            label = { Text(id.label, fontSize = 14.sp) },
+                        )
+                    }
+                }
             }
 
             Spacer(Modifier.height(28.dp))
-            Text(
-                "Samjho सिर्फ़ वही दोहराता है जो डॉक्टर ने कहा। यह कोई चिकित्सा सलाह नहीं देता।\n" +
-                    "Samjho only repeats what the doctor said. It never gives medical advice.",
-                fontSize = 13.sp,
-                color = Muted,
-            )
+            Text(t.readiness(reason == null, llm), fontSize = 13.sp, color = Muted)
+            Spacer(Modifier.height(10.dp))
+            Text(t.disclaimer, fontSize = 13.sp, color = Muted)
         }
     }
 }
 
 // ------------------------------------------------------------------ result
 
+/**
+ * What to do, in the order a patient needs it: the medicines, what to avoid, the warning signs, the next visit. The
+ * doctor's own words (with the transcript) are behind one control at the bottom, closed until asked for.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ResultScreen(
     extraction: Extraction,
@@ -246,7 +234,17 @@ fun ResultScreen(
     actions: MedicineActions,
     onBack: () -> Unit,
 ) {
-    val t = remember(extraction.language) { Strings(extraction.language) }
+    val lang = UiLanguage.resolve(extraction.language)
+    val t = remember(lang) { Strings(lang) }
+    // Screens opened from here (the prescription scan) follow this summary until the person chooses otherwise.
+    LaunchedEffect(extraction.language) { UiLanguage.consultation = extraction.language }
+
+    var wordsOpen by remember { mutableStateOf(false) }
+    var showWordsRequest by remember { mutableIntStateOf(0) }
+    val wordsPosition = remember { BringIntoViewRequester() }
+    LaunchedEffect(showWordsRequest) {
+        if (showWordsRequest > 0) wordsPosition.bringIntoView()
+    }
 
     Surface(color = MaterialTheme.colorScheme.background) {
         Column(
@@ -259,19 +257,11 @@ fun ResultScreen(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp)) {
-                    Text("← वापस / Back", fontSize = 16.sp)
+                    Text(t.back, fontSize = 16.sp)
                 }
                 Spacer(Modifier.weight(1f))
-                when {
-                    ai is AiState.Checking -> Pill(t.aiChecking, AvoidTint, AvoidInk)
-                    ai is AiState.Done && ai.added > 0 -> Pill(t.aiPlusRules, OkTint, MaterialTheme.colorScheme.primary)
-                    else -> Pill(t.rulesOnly, OkTint, MaterialTheme.colorScheme.primary)
-                }
+                LanguageToggle(lang)
             }
-
-            Text(sourceLabel, fontSize = 13.sp, color = Muted)
-            Text("${ruleMillis} ms", fontSize = 13.sp, color = Muted)
-            Text(LlmStatusText.line(llm), fontSize = 13.sp, color = Muted)
 
             val context = LocalContext.current
             var choosingShare by remember { mutableStateOf(false) }
@@ -291,16 +281,7 @@ fun ResultScreen(
                 Text(reading.reason, fontSize = 14.sp, color = WarnInk)
             }
             shareError?.let { Text("${t.shareFailed} $it", fontSize = 14.sp, color = WarnInk) }
-
-            // The next step in the story: the doctor's voice gave the instructions, the paper gives the names.
-            Panel(bg = OkTint) {
-                Text("📷  ${t.scanPrescription}", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                Text(t.scanPrescriptionHint, fontSize = 14.sp, color = Ink)
-                paperApplied?.let { (named, added) ->
-                    Text("✓ ${t.paperApplied(named, added)}", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
-                }
-                Button(onClick = onScanPrescription, shape = RoundedCornerShape(12.dp)) { Text(t.scanPrescription, fontSize = 16.sp) }
-            }
+            if (ai is AiState.Checking) Text(t.stillChecking, fontSize = 13.sp, color = Muted)
 
             if (choosingShare) {
                 val pending = extraction.medicines.count { it.isUnconfirmed }
@@ -308,8 +289,9 @@ fun ResultScreen(
                     choosingShare = false
                     val stamp = SimpleDateFormat(
                         "d MMM yyyy, HH:mm",
-                        if (extraction.language == Language.HINDI) Locale("hi", "IN") else Locale.ENGLISH,
+                        if (lang == Language.HINDI) Locale("hi", "IN") else Locale.ENGLISH,
                     ).format(Date())
+                    // The shared image and PDF are written in the language the screen is showing.
                     SummarySharer.share(
                         context = context,
                         doc = SummaryBuilder.build(extraction, t, stamp),
@@ -334,16 +316,22 @@ fun ResultScreen(
                 )
             }
 
+            // 1. Medicines.
             val toConfirm = extraction.medicines.count { it.isUnconfirmed }
             if (toConfirm > 0) {
                 Panel(bg = AvoidTint) {
                     Text(t.needConfirming(toConfirm), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = AvoidInk)
                     Text(t.checkName, fontSize = 14.sp, color = AvoidInk)
+                    Text(
+                        t.showWords,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier
+                            .clickable { wordsOpen = true; showWordsRequest++ }
+                            .padding(vertical = 6.dp),
+                    )
                 }
-            }
-
-            if (extraction.diagnosis.isNotEmpty()) {
-                NoteSection(t.diagnosis, extraction.diagnosis, extraction, t, Color.White, Ink)
             }
 
             if (extraction.medicines.isNotEmpty()) {
@@ -364,35 +352,70 @@ fun ResultScreen(
                 }
             }
 
+            // 2. Things to avoid.
             if (extraction.avoid.isNotEmpty()) {
-                NoteSection(t.avoid, extraction.avoid, extraction, t, AvoidTint, AvoidInk)
+                SectionTitle(t.avoid)
+                Panel(bg = AvoidTint) {
+                    extraction.avoid.forEach { note -> Text("•  ${note.text}", fontSize = 18.sp, color = AvoidInk) }
+                }
             }
 
+            // 3. Warning signs: a red block that cannot be mistaken for the rest.
             if (extraction.warnings.isNotEmpty()) {
-                NoteSection(t.warnings, extraction.warnings, extraction, t, WarnTint, WarnInk)
+                Surface(
+                    color = WarnTint,
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(2.dp, WarnInk),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("⚠  ${t.warnings}", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = WarnInk)
+                        extraction.warnings.forEach { note ->
+                            Text(note.text, fontSize = 19.sp, fontWeight = FontWeight.Medium, color = WarnInk)
+                        }
+                    }
+                }
             }
 
+            // 4. Next visit.
             extraction.followUp?.let { f ->
                 SectionTitle(t.followUp)
                 Panel {
                     f.inDays?.let { Pill(t.followUpIn(it), OkTint, MaterialTheme.colorScheme.primary) }
-                    Text(f.text, fontSize = 17.sp)
-                    DoctorWords(extraction, f.sourceLines, t)
+                    Text(f.text, fontSize = 18.sp)
                 }
             }
 
+            // What the doctor did not say stays visible, and quiet.
             if (extraction.missingSections.isNotEmpty()) {
                 SectionTitle(t.notMentioned)
                 Panel {
                     extraction.missingSections.forEach { s ->
-                        Text("•  ${t.missingSection(s)}", fontSize = 16.sp, color = Muted)
+                        Text("•  ${t.missingSection(s)}", fontSize = 15.sp, color = Muted)
                     }
-                    Text(t.askDoctor, fontSize = 14.sp, color = Muted)
+                    Text(t.askDoctor, fontSize = 13.sp, color = Muted)
                 }
             }
 
-            SectionTitle(t.transcript)
-            TranscriptPanel(extraction, t)
+            // The doctor's voice gave the instructions, the paper gives the names.
+            Panel(bg = OkTint) {
+                Text(t.scanPrescriptionHint, fontSize = 14.sp, color = Ink)
+                paperApplied?.let { (named, added) ->
+                    Text("✓ ${t.paperApplied(named, added)}", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
+                }
+                OutlinedButton(onClick = onScanPrescription, shape = RoundedCornerShape(12.dp)) {
+                    Text("📷  ${t.scanPrescription}", fontSize = 16.sp)
+                }
+            }
+
+            // 5. Everything else, closed until asked for.
+            DoctorsWords(
+                extraction = extraction,
+                t = t,
+                open = wordsOpen,
+                onToggle = { wordsOpen = !wordsOpen },
+                modifier = Modifier.bringIntoViewRequester(wordsPosition),
+            )
 
             Spacer(Modifier.height(4.dp))
             Text(t.disclaimer, fontSize = 13.sp, color = Muted)
@@ -427,7 +450,6 @@ private fun MedicineCard(index: Int, m: Medicine, extraction: Extraction, t: Str
                 textDecoration = TextDecoration.LineThrough,
             )
             UndoLink(t) { actions.undo(index) }
-            DoctorWords(extraction, m.sourceLines, t, m.continuations)
             return@Panel
         }
 
@@ -437,9 +459,9 @@ private fun MedicineCard(index: Int, m: Medicine, extraction: Extraction, t: Str
                 when {
                     paperOnly -> Pill(t.fromPrescriptionNotSpoken, OkTint, primary)
                     fromPaper -> Pill(t.confirmedFromPrescription, OkTint, primary)
-                    inferred -> Pill(t.basis(m.basis, m.hypothesis), Color(0xFFEDEFF2), Muted)
                 }
-                if (m.provenance == Provenance.AI) Pill("AI", Color(0xFFEDEFF2), Muted)
+                // An AI match is always marked as one; the other ways a name was guessed are told by "heard as".
+                if (m.basis == Basis.AI_MATCHED || m.provenance == Provenance.AI) Pill(t.aiMatched, Color(0xFFEDEFF2), Muted)
             }
         }
 
@@ -466,31 +488,23 @@ private fun MedicineCard(index: Int, m: Medicine, extraction: Extraction, t: Str
             else -> Text(m.name, fontSize = 25.sp, fontWeight = FontWeight.Bold)
         }
 
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            // A detail the doctor said on a later line is marked with that line, so it never looks like part of the
-            // medicine's own sentence.
-            @Composable
-            fun detail(text: String, kind: com.packetloss.samjho.model.Detail) {
-                val from = m.continuedFrom(kind)
-                if (from == null) Pill(text, OkTint, primary) else Pill("$text · ${t.line(from)}", Color(0xFFF1F4F6), primary)
-            }
-            m.timesPerDay?.let { detail(t.timesPerDay(it), com.packetloss.samjho.model.Detail.TIMES_PER_DAY) }
-            m.doseCount?.let { detail(t.dose(it), com.packetloss.samjho.model.Detail.DOSE) }
-            m.timesOfDay.forEach { detail(t.timeOfDay(it), com.packetloss.samjho.model.Detail.TIME_OF_DAY) }
-            m.foodRelation?.let { detail(t.food(it), com.packetloss.samjho.model.Detail.FOOD) }
-            m.durationDays?.let { detail(t.durationDays(it), com.packetloss.samjho.model.Detail.DURATION) }
+        // "1 tablet, 3 times a day, after food, for 5 days": one plain sentence, only what the doctor said.
+        t.sentence(m)?.let { Text(it, fontSize = 19.sp, color = Ink) }
+
+        // A detail from a later, separate sentence is still said to be one; the words themselves are under
+        // "Show the doctor's words".
+        val later = m.continuations.flatMap { it.details }.distinct()
+        if (later.isNotEmpty()) {
+            Text("${t.saidLaterShort}: " + later.joinToString(", ") { t.detailName(it) }, fontSize = 13.sp, color = Muted)
         }
 
         if (m.missing.isNotEmpty()) {
             Text(
                 "${t.notMentioned}: " + m.missing.joinToString(", ") { t.missing(it) },
-                fontSize = 15.sp,
-                color = AvoidInk,
+                fontSize = 13.sp,
+                color = Muted,
             )
-            Text(t.askDoctor, fontSize = 14.sp, color = Muted)
+            Text(t.askDoctor, fontSize = 13.sp, color = Muted)
         }
 
         if (m.isUnconfirmed) {
@@ -502,8 +516,6 @@ private fun MedicineCard(index: Int, m: Medicine, extraction: Extraction, t: Str
         } else if (showsStatus) {
             UndoLink(t) { actions.undo(index) }
         }
-
-        DoctorWords(extraction, m.sourceLines, t, m.continuations)
     }
 
     if (choosing) {
@@ -552,34 +564,107 @@ class MedicineActions(
     val choose: (Int, String) -> Unit,
 )
 
+// ------------------------------------------------------------------ the doctor's words
+
+/**
+ * The one place the evidence lives: what the doctor said about each item, and the full transcript. Closed by default,
+ * one tap to open. Nothing is removed from the app; it is just not in the way.
+ */
 @Composable
-private fun NoteSection(
-    title: String,
-    notes: List<Note>,
+private fun DoctorsWords(
     extraction: Extraction,
     t: Strings,
-    tint: Color,
-    ink: Color,
+    open: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    SectionTitle(title)
-    Panel(bg = tint) {
-        notes.forEach { note ->
-            Text("•  ${note.text}", fontSize = 17.sp, color = ink)
+    Surface(
+        color = Color.White,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, Line),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onToggle)
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    if (open) t.hideDoctorWords else t.showWords,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Ink,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(if (open) "▾" else "▸", fontSize = 18.sp, color = Muted)
+            }
+            if (open) {
+                Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    if (extraction.diagnosis.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(t.diagnosisSaid, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Muted)
+                            extraction.diagnosis.forEach { Text("•  ${it.text}", fontSize = 17.sp, color = Ink) }
+                        }
+                    }
+
+                    extraction.medicines.forEach { m ->
+                        val title = when {
+                            m.basis == Basis.FROM_PRESCRIPTION || m.paper != null -> Lexicon.display(m.key)
+                            m.isUnconfirmed || m.isRejected -> "${t.heardAs} “${m.name}”"
+                            m.basis != Basis.HEARD -> Lexicon.display(m.key)
+                            else -> m.name
+                        }
+                        Quotes(extraction, title, m.sourceLines, t, m.continuations)
+                    }
+                    extraction.diagnosis.forEach { Quotes(extraction, it.text, it.sourceLines, t) }
+                    extraction.avoid.forEach { Quotes(extraction, it.text, it.sourceLines, t) }
+                    extraction.warnings.forEach { Quotes(extraction, it.text, it.sourceLines, t) }
+                    extraction.followUp?.let { Quotes(extraction, it.text, it.sourceLines, t) }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(t.transcript, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Muted)
+                        extraction.lines.forEach { line ->
+                            Text("${line.index + 1}.  ${line.text}", fontSize = 16.sp, color = Ink)
+                        }
+                    }
+                }
+            }
         }
-        DoctorWords(extraction, notes.flatMap { it.sourceLines }, t)
     }
 }
 
+/** One item and the line or lines it came from. Nothing is shown for an item with no line (a name from the paper). */
 @Composable
-private fun TranscriptPanel(extraction: Extraction, t: Strings) {
-    var open by remember { mutableStateOf(false) }
-    Panel {
-        TextButton(onClick = { open = !open }, contentPadding = PaddingValues(0.dp)) {
-            Text(if (open) t.hideWords else t.showTranscript, fontSize = 15.sp)
+private fun Quotes(
+    extraction: Extraction,
+    title: String,
+    lines: List<Int>,
+    t: Strings,
+    continuations: List<Continuation> = emptyList(),
+) {
+    if (lines.isEmpty() && continuations.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Muted)
+        extraction.quotes(lines).forEach { line ->
+            Surface(color = Color(0xFFF1F4F6), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp)) {
+                    Text(t.line(line.index), fontSize = 12.sp, color = Muted)
+                    Text(line.text, fontSize = 16.sp, color = Ink)
+                }
+            }
         }
-        if (open) {
-            extraction.lines.forEach { line ->
-                Text("${line.index + 1}.  ${line.text}", fontSize = 16.sp)
+        // The details the doctor added in a sentence of their own, each with its own line and what it added.
+        continuations.forEach { c ->
+            val line = extraction.lines.getOrNull(c.line) ?: return@forEach
+            Surface(color = Color(0xFFEAF2F0), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("${t.line(line.index)} · ${t.saidLater}", fontSize = 12.sp, color = Muted)
+                    Text(line.text, fontSize = 16.sp, color = Ink)
+                    Text(c.details.joinToString(", ") { t.detailName(it) }, fontSize = 13.sp, color = Muted)
+                }
             }
         }
     }
@@ -588,55 +673,10 @@ private fun TranscriptPanel(extraction: Extraction, t: Strings) {
 // ------------------------------------------------------------------ pieces
 
 @Composable
-private fun DoctorWords(
-    extraction: Extraction,
-    lines: List<Int>,
-    t: Strings,
-    continuations: List<com.packetloss.samjho.model.Continuation> = emptyList(),
-) {
-    if (lines.isEmpty() && continuations.isEmpty()) return
-    var open by remember { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        TextButton(onClick = { open = !open }, contentPadding = PaddingValues(0.dp)) {
-            Text(if (open) t.hideWords else t.showWords, fontSize = 15.sp)
-        }
-        if (open) {
-            extraction.quotes(lines).forEach { line ->
-                Surface(
-                    color = Color(0xFFF1F4F6),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(Modifier.padding(12.dp)) {
-                        Text(t.line(line.index), fontSize = 12.sp, color = Muted)
-                        Text(line.text, fontSize = 16.sp, color = Ink)
-                    }
-                }
-            }
-            // The details the doctor added in a sentence of their own, each with its own line and what it added.
-            continuations.forEach { c ->
-                val line = extraction.lines.getOrNull(c.line) ?: return@forEach
-                Surface(
-                    color = Color(0xFFEAF2F0),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(Modifier.padding(12.dp)) {
-                        Text("${t.line(line.index)} · ${t.saidLater}", fontSize = 12.sp, color = Muted)
-                        Text(line.text, fontSize = 16.sp, color = Ink)
-                        Text(c.details.joinToString(", ") { t.detailName(it) }, fontSize = 13.sp, color = Muted)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun SectionTitle(text: String) {
     Text(
         text,
-        fontSize = 14.sp,
+        fontSize = 15.sp,
         fontWeight = FontWeight.Bold,
         color = Muted,
     )

@@ -26,7 +26,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.packetloss.samjho.RecordingState
-import com.packetloss.samjho.model.Language
 
 @Composable
 fun RecordScreen(
@@ -34,7 +33,7 @@ fun RecordScreen(
     onStop: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    val hindi = recording.language == Language.HINDI
+    val t = Strings(recording.language)
     Surface(color = MaterialTheme.colorScheme.background) {
         Column(
             Modifier
@@ -43,34 +42,23 @@ fun RecordScreen(
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    if (hindi) "सुन रहा है…" else "Listening…",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (recording.error == null) MaterialTheme.colorScheme.primary else WarnInk,
-                )
-                Spacer(Modifier.weight(1f))
-                Pill(recording.engine.label, OkTint, MaterialTheme.colorScheme.primary)
-            }
+            Text(
+                t.listening,
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (recording.error == null) MaterialTheme.colorScheme.primary else WarnInk,
+            )
 
             when {
                 recording.error != null -> Panel(WarnTint) {
                     Text(recording.error, color = WarnInk, fontSize = 16.sp)
                 }
-                recording.loading -> Text(
-                    if (hindi) "भाषा मॉडल तैयार हो रहा है (पहली बार कुछ सेकंड लगते हैं)…"
-                    else "Getting the speech model ready (a few seconds the first time)…",
-                    color = Muted,
-                    fontSize = 15.sp,
-                )
+                recording.loading -> Text(t.gettingSpeechReady, color = Muted, fontSize = 15.sp)
                 else -> {
+                    // Which recogniser is running is not the patient's business. Whether it may leave the phone is.
                     val notGuaranteed = recording.detail.startsWith("system")
-                    Pill(
-                        (if (hindi) "माइक चालू · " else "Mic on · ") + recording.detail,
-                        if (notGuaranteed) AvoidTint else OkTint,
-                        if (notGuaranteed) AvoidInk else MaterialTheme.colorScheme.primary,
-                    )
+                    Pill(t.micOn, OkTint, MaterialTheme.colorScheme.primary)
+                    if (notGuaranteed) Text(t.notGuaranteedOffline, color = AvoidInk, fontSize = 14.sp)
                 }
             }
 
@@ -100,7 +88,7 @@ fun RecordScreen(
                     .height(60.dp),
                 shape = RoundedCornerShape(14.dp),
             ) {
-                Text(if (hindi) "रोकें और समझें" else "Stop and explain", fontSize = 18.sp)
+                Text(t.stopAndExplain, fontSize = 19.sp, fontWeight = FontWeight.Bold)
             }
             OutlinedButton(
                 onClick = onCancel,
@@ -110,7 +98,7 @@ fun RecordScreen(
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Muted),
             ) {
-                Text(if (hindi) "रद्द करें" else "Cancel", fontSize = 16.sp)
+                Text(t.cancel, fontSize = 16.sp)
             }
             Spacer(Modifier.height(4.dp))
         }

@@ -167,6 +167,130 @@ class Strings(private val language: Language) {
 
     fun line(index: Int) = pick("पंक्ति ${index + 1}", "Line ${index + 1}")
 
+    // ---- the medicine card: one plain sentence instead of labelled rows
+    /**
+     * "1 tablet, 3 times a day, after food, for 5 days": only what the doctor said, in the order a person would say it.
+     * Null when none of it was said (the card then shows only what was "Not mentioned").
+     */
+    fun sentence(m: com.packetloss.samjho.model.Medicine): String? {
+        val parts = buildList {
+            m.doseCount?.let { add(dose(it)) }
+            m.timesPerDay?.let { add(pick("दिन में $it बार", if (it == 1) "once a day" else "$it times a day")) }
+            if (m.timesOfDay.isNotEmpty()) add(m.timesOfDay.joinToString(pick(", ", " and ")) { plainTimeOfDay(it) })
+            m.foodRelation?.let { add(plainFood(it)) }
+            m.durationDays?.let { add(pick("$it दिन तक", if (it == 1) "for 1 day" else "for $it days")) }
+        }
+        if (parts.isEmpty()) return null
+        return parts.joinToString(", ").replaceFirstChar { it.uppercase() }
+    }
+
+    private fun plainTimeOfDay(t: TimeOfDay) = when (t) {
+        TimeOfDay.MORNING -> pick("सुबह", "in the morning")
+        TimeOfDay.AFTERNOON -> pick("दोपहर", "in the afternoon")
+        TimeOfDay.EVENING -> pick("शाम", "in the evening")
+        TimeOfDay.NIGHT -> pick("रात", "at night")
+    }
+
+    private fun plainFood(f: FoodRelation) = when (f) {
+        FoodRelation.BEFORE_FOOD -> pick("खाने से पहले", "before food")
+        FoodRelation.AFTER_FOOD -> pick("खाने के बाद", "after food")
+        FoodRelation.EMPTY_STOMACH -> pick("खाली पेट", "on an empty stomach")
+        FoodRelation.WITH_FOOD -> pick("खाने के साथ", "with food")
+    }
+
+    // ---- toggle and navigation
+    val back = pick("← वापस", "← Back")
+    val close = pick("बंद करें", "Close")
+    val stillChecking = pick("कुछ अस्पष्ट शब्द जाँचे जा रहे हैं…", "Checking a few unclear words…")
+    val hideDoctorWords = pick("डॉक्टर के शब्द छिपाएँ", "Hide the doctor's words")
+    val doctorSaid = pick("डॉक्टर ने कहा", "The doctor said")
+    val diagnosisSaid = pick("डॉक्टर ने क्या बताया", "What the doctor said it is")
+
+    // ---- home
+    val tagline = pick("डॉक्टर ने जो कहा, आपकी भाषा में।", "What the doctor said, explained back to you.")
+    val recordConsultation = pick("🎙  बातचीत रिकॉर्ड करें", "🎙  Record consultation")
+    val consent = pick("डॉक्टर ने रिकॉर्डिंग की अनुमति दी है", "The doctor has agreed to be recorded")
+    val consentNeeded = pick("पहले डॉक्टर की अनुमति पर निशान लगाएँ।", "Tick the box first: the doctor must agree to be recorded.")
+    val micNeeded = pick("रिकॉर्ड करने के लिए माइक की अनुमति चाहिए।", "Microphone permission is needed to record.")
+    val scanShort = pick("📷  पर्चा स्कैन करें", "📷  Scan the prescription")
+    val demoHeading = pick("नमूना बातचीत देखें", "Try a demo consultation")
+    val speechOptions = pick("बोली पहचान चुनें", "Speech recogniser")
+
+    /** The one quiet line on the home screen: is speech ready, is the AI model ready. Nothing more. */
+    fun readiness(speechReady: Boolean, ai: com.packetloss.samjho.llm.LlmStatus): String {
+        val aiReady = ai is com.packetloss.samjho.llm.LlmStatus.Ready
+        val aiLoading = ai is com.packetloss.samjho.llm.LlmStatus.Loading
+        return when {
+            speechReady && aiReady -> pick("ऑफ़लाइन बोली और AI मॉडल तैयार हैं", "Offline speech and AI model ready")
+            speechReady && aiLoading -> pick("ऑफ़लाइन बोली तैयार है · AI मॉडल तैयार हो रहा है", "Offline speech ready · AI model getting ready")
+            speechReady -> pick("ऑफ़लाइन बोली तैयार है · AI मॉडल उपलब्ध नहीं", "Offline speech ready · AI model not available")
+            aiReady -> pick("इस भाषा के लिए बोली तैयार नहीं · AI मॉडल तैयार है", "Speech not ready for this language · AI model ready")
+            else -> pick("इस भाषा के लिए बोली तैयार नहीं", "Speech not ready for this language")
+        }
+    }
+
+    // ---- recording
+    val listening = pick("सुन रहा है…", "Listening…")
+    val micOn = pick("माइक चालू है", "Microphone is on")
+    val notGuaranteedOffline = pick("यह पूरी तरह ऑफ़लाइन होगा, इसकी गारंटी नहीं है।", "This is not guaranteed to stay offline.")
+    val gettingSpeechReady = pick(
+        "बोली पहचान तैयार हो रही है (पहली बार कुछ सेकंड लगते हैं)…",
+        "Getting speech recognition ready (a few seconds the first time)…",
+    )
+    val stopAndExplain = pick("रोकें और समझें", "Stop and explain")
+
+    // ---- prescription scan
+    val scanTitle = pick("पर्चा स्कैन", "Prescription scan")
+    val cameraNeeded = pick("स्कैन के लिए कैमरे की अनुमति चाहिए", "The camera is needed to scan")
+    val cameraRefused = pick(
+        "कैमरे की अनुमति नहीं मिली। आप अनुमति दे सकते हैं, या कैमरे के बिना सूची से दवा चुन सकते हैं।",
+        "Camera permission was refused. You can allow it, or pick your medicine from the list without the camera.",
+    )
+    val cameraPrivacy = pick(
+        "फ़ोटो इसी फ़ोन पर पढ़ी जाती है। वह सेव नहीं होती और फ़ोन से बाहर नहीं जाती।",
+        "The photo is read on this phone. It is not saved and never leaves the phone.",
+    )
+    val allowCamera = pick("कैमरा चालू करें", "Allow camera")
+    val fillFrame = pick("पर्चे को फ्रेम में रखें", "Fill the frame with the prescription")
+    val readingPrescription = pick("पर्चा पढ़ रहे हैं…", "Reading the prescription…")
+    val onThisPhoneOnly = pick("सिर्फ़ इसी फ़ोन पर।", "On this phone only.")
+    val scanFailed = pick("स्कैन नहीं हो सका", "The scan did not work")
+    val stillPickFromList = pick("आप फिर भी सूची से दवा चुन सकते हैं।", "You can still pick your medicine from the list.")
+    val tryCameraAgain = pick("कैमरे से फिर कोशिश करें", "Try the camera again")
+    val pickFromList = pick("सूची से दवा चुनें", "Pick a medicine from the list")
+    val nothingMatched = pick("पन्ने पर सूची की कोई दवा नहीं मिली।", "Nothing on the page matched a medicine in the list.")
+    val nothingMatchedHint = pick(
+        "हाथ की लिखावट या धुंधली फ़ोटो में ऐसा होता है। नीचे सूची से अपनी दवा चुनें, या फिर से स्कैन करें।",
+        "This is normal for handwriting or a blurry photo. Pick your medicine from the list below, or scan again.",
+    )
+
+    fun foundPossible(n: Int) = pick(
+        "कैमरे को $n संभावित दवा मिली। हर एक को अपने पर्चे से मिलाएँ, फिर पुष्टि करें।",
+        "The camera found $n possible ${if (n == 1) "medicine" else "medicines"}. Check each against your prescription, then confirm.",
+    )
+
+    fun useConfirmed(n: Int) = pick("सार में जोड़ें: $n पुष्ट", "Use $n confirmed in the summary")
+    val confirmToUse = pick("सार में जोड़ने के लिए किसी दवा की पुष्टि करें", "Confirm a medicine to use it in the summary")
+    val didntFind = pick("दवा नहीं मिली?", "Didn't find your medicine?")
+    val scanAgain = pick("फिर से स्कैन करें", "Scan again")
+    val showCameraRead = pick("कैमरे ने क्या पढ़ा, दिखाएँ", "Show what the camera read")
+    val nothingRead = pick("फ़ोटो से कुछ नहीं पढ़ा गया।", "Nothing was read from the photo.")
+    val scanDisclaimer = pick(
+        "Samjho सिर्फ़ वही दिखाता है जो कैमरे ने पढ़ा और जो नाम आप चुनते हैं। यह कोई चिकित्सा सलाह नहीं देता। फ़ोटो इसी फ़ोन पर रहती है।",
+        "Samjho only shows what the camera read and the names you choose. It gives no medical advice. The photo stays on this phone.",
+    )
+    val confirmButton = pick("पुष्टि करें", "Confirm")
+    val rejectButton = pick("हटाएँ", "Reject")
+    val checkAgainstPrescription = pick("पुष्टि से पहले इसे अपने पर्चे से मिलाएँ।", "Check this against your prescription before confirming.")
+    val confirmedAs = pick("पुष्ट नाम", "Confirmed as")
+    val aiMatched = pick("AI ने मिलाया", "AI matched")
+    val pickedByYou = pick("आपने चुना", "Picked by you")
+    val pickTitle = pick("अपनी दवा चुनें", "Pick your medicine")
+    val whichMedicine = pick("कौन सी दवा है?", "Which medicine is it?")
+    val typeFewLetters = pick("कुछ अक्षर लिखें, जैसे para", "Type a few letters, e.g. para")
+    val noNameInList = pick("इस नाम की कोई दवा सूची में नहीं है। कम अक्षर लिखकर देखें।", "No medicine with that name is in the list. Try fewer letters.")
+    val added = pick("✓ जुड़ी", "✓ added")
+
     fun timesPerDay(n: Int) = pick("दिन में $n बार", if (n == 1) "Once a day" else "$n times a day")
 
     fun dose(n: Int) = pick("$n गोली", if (n == 1) "1 tablet" else "$n tablets")

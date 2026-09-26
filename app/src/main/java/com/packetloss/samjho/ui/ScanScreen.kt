@@ -115,19 +115,23 @@ fun ScanScreen(
     onBack: () -> Unit,
 ) {
     var picker by remember { mutableStateOf<Picker?>(null) }
+    val lang = UiLanguage.resolve()
+    val t = remember(lang) { Strings(lang) }
 
     Surface(color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize().systemBarsPadding()) {
             Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp)) {
-                    Text("← वापस / Back", fontSize = 16.sp)
+                    Text(t.back, fontSize = 16.sp)
                 }
+                Spacer(Modifier.weight(1f))
+                LanguageToggle(lang)
             }
             when (val stage = ui.stage) {
-                ScanStage.Camera -> CameraStage(onPhoto, onCameraError, onPickFromList = { picker = Picker.Manual })
-                ScanStage.Reading -> ReadingStage()
-                ScanStage.Results -> ResultsStage(ui, ai, actions, onScanAgain, onApply, onOpenPicker = { picker = it })
-                is ScanStage.Failed -> FailedStage(stage.message, onScanAgain, onPickFromList = { picker = Picker.Manual })
+                ScanStage.Camera -> CameraStage(t, onPhoto, onCameraError, onPickFromList = { picker = Picker.Manual })
+                ScanStage.Reading -> ReadingStage(t)
+                ScanStage.Results -> ResultsStage(t, ui, ai, actions, onScanAgain, onApply, onOpenPicker = { picker = it })
+                is ScanStage.Failed -> FailedStage(t, stage.message, onScanAgain, onPickFromList = { picker = Picker.Manual })
             }
         }
     }
@@ -135,7 +139,8 @@ fun ScanScreen(
     picker?.let { target ->
         val already = ui.items.filter { !it.isRejected }.map { it.key }.toSet()
         PickerDialog(
-            title = if (target is Picker.Another) "कौन सी दवा? · Which medicine is it?" else "अपनी दवा चुनें · Pick your medicine",
+            title = if (target is Picker.Another) t.whichMedicine else t.pickTitle,
+            t = t,
             first = (target as? Picker.Another)?.first.orEmpty(),
             already = already,
             onPick = { key ->
@@ -150,7 +155,7 @@ fun ScanScreen(
 // ------------------------------------------------------------------ camera
 
 @Composable
-private fun CameraStage(onPhoto: (Bitmap) -> Unit, onCameraError: (String) -> Unit, onPickFromList: () -> Unit) {
+private fun CameraStage(t: Strings, onPhoto: (Bitmap) -> Unit, onCameraError: (String) -> Unit, onPickFromList: () -> Unit) {
     val context = LocalContext.current
     var granted by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
@@ -166,7 +171,7 @@ private fun CameraStage(onPhoto: (Bitmap) -> Unit, onCameraError: (String) -> Un
     Column(Modifier.fillMaxSize()) {
         if (granted) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                CameraPreview(onPhoto = onPhoto, reportError = onCameraError)
+                CameraPreview(t, onPhoto = onPhoto, reportError = onCameraError)
             }
         } else {
             Column(
@@ -174,26 +179,25 @@ private fun CameraStage(onPhoto: (Bitmap) -> Unit, onCameraError: (String) -> Un
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text("कैमरे की अनुमति चाहिए · The camera is needed to scan", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = Ink)
+                Text(t.cameraNeeded, fontSize = 18.sp, fontWeight = FontWeight.Medium, color = Ink)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    if (refused) "Camera permission was refused. You can allow it, or pick your medicine from the list without the camera."
-                    else "The photo is read on this phone. It is not saved and never leaves the phone.",
+                    if (refused) t.cameraRefused else t.cameraPrivacy,
                     fontSize = 15.sp,
                     color = Muted,
                 )
                 Spacer(Modifier.height(16.dp))
                 Button(onClick = { askCamera.launch(Manifest.permission.CAMERA) }, shape = RoundedCornerShape(12.dp)) {
-                    Text("कैमरा चालू करें · Allow camera", fontSize = 16.sp)
+                    Text(t.allowCamera, fontSize = 16.sp)
                 }
             }
         }
-        PickFromListButton(onPickFromList, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+        PickFromListButton(t, onPickFromList, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
     }
 }
 
 @Composable
-private fun CameraPreview(onPhoto: (Bitmap) -> Unit, reportError: (String) -> Unit) {
+private fun CameraPreview(t: Strings, onPhoto: (Bitmap) -> Unit, reportError: (String) -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val previewView = remember { PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER } }
@@ -218,7 +222,7 @@ private fun CameraPreview(onPhoto: (Bitmap) -> Unit, reportError: (String) -> Un
     Box(Modifier.fillMaxSize()) {
         AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
         Text(
-            "पर्चे को फ्रेम में रखें · Fill the frame with the prescription",
+            t.fillFrame,
             color = Color.White,
             fontSize = 14.sp,
             modifier = Modifier
@@ -284,80 +288,60 @@ private fun ImageProxy.toUprightBitmap(maxEdge: Int = 2560): Bitmap {
 }
 
 @Composable
-private fun ReadingStage() {
+private fun ReadingStage(t: Strings) {
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         CircularProgressIndicator()
         Spacer(Modifier.height(16.dp))
-        Text("पर्चा पढ़ रहे हैं… · Reading the prescription…", fontSize = 17.sp, color = Ink)
-        Text("On this phone only.", fontSize = 14.sp, color = Muted)
+        Text(t.readingPrescription, fontSize = 17.sp, color = Ink)
+        Text(t.onThisPhoneOnly, fontSize = 14.sp, color = Muted)
     }
 }
 
 @Composable
-private fun FailedStage(message: String, onTryAgain: () -> Unit, onPickFromList: () -> Unit) {
+private fun FailedStage(t: Strings, message: String, onTryAgain: () -> Unit, onPickFromList: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Panel(bg = WarnTint) {
-            Text("स्कैन नहीं हो सका · The scan did not work", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = WarnInk)
+            Text(t.scanFailed, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = WarnInk)
             Text(message, fontSize = 14.sp, color = WarnInk)
         }
-        Text("You can still pick your medicine from the list.", fontSize = 15.sp, color = Muted)
-        PickFromListButton(onPickFromList)
+        Text(t.stillPickFromList, fontSize = 15.sp, color = Muted)
+        PickFromListButton(t, onPickFromList)
         OutlinedButton(onClick = onTryAgain, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(14.dp)) {
-            Text("फिर से कोशिश करें · Try the camera again", fontSize = 16.sp)
+            Text(t.tryCameraAgain, fontSize = 16.sp)
         }
     }
 }
 
 @Composable
-private fun PickFromListButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun PickFromListButton(t: Strings, onClick: () -> Unit, modifier: Modifier = Modifier) {
     OutlinedButton(onClick = onClick, modifier = modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(14.dp)) {
-        Text("सूची से दवा चुनें · Pick a medicine from the list", fontSize = 16.sp)
+        Text(t.pickFromList, fontSize = 16.sp)
     }
 }
 
 // ------------------------------------------------------------------ results
 
 @Composable
-private fun ResultsStage(ui: ScanUi, ai: AiState, actions: ScanActions, onScanAgain: () -> Unit, onApply: (() -> Unit)?, onOpenPicker: (Picker) -> Unit) {
+private fun ResultsStage(t: Strings, ui: ScanUi, ai: AiState, actions: ScanActions, onScanAgain: () -> Unit, onApply: (() -> Unit)?, onOpenPicker: (Picker) -> Unit) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         val suggested = ui.items.count { it.basis != ScanBasis.PICKED }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "पर्चा स्कैन · Prescription scan",
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.weight(1f),
-            )
-            when {
-                ai is AiState.Checking -> Pill("AI CHECKING…", AvoidTint, AvoidInk)
-                ai is AiState.Done && ai.added > 0 -> Pill("AI + RULES", OkTint, MaterialTheme.colorScheme.primary)
-            }
-        }
-        if (ai is AiState.Unavailable) Text("AI name repair is not available: ${ai.reason}", fontSize = 12.sp, color = Muted)
+        Text(t.scanTitle, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        if (ai is AiState.Checking) Text(t.stillChecking, fontSize = 13.sp, color = Muted)
 
         if (ui.items.isEmpty()) {
             Panel(bg = AvoidTint) {
-                Text("Nothing on the page matched a medicine in the list.", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = AvoidInk)
-                Text(
-                    "This is normal for handwriting or a blurry photo. Pick your medicine from the list below, or scan again.",
-                    fontSize = 14.sp,
-                    color = AvoidInk,
-                )
+                Text(t.nothingMatched, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = AvoidInk)
+                Text(t.nothingMatchedHint, fontSize = 14.sp, color = AvoidInk)
             }
         } else if (suggested > 0) {
-            Text(
-                "The camera found $suggested possible medicine${if (suggested == 1) "" else "s"}. Check each against your prescription, then confirm.",
-                fontSize = 14.sp,
-                color = Muted,
-            )
+            Text(t.foundPossible(suggested), fontSize = 14.sp, color = Muted)
         }
 
         ui.items.forEach { item ->
-            ScanCard(item, actions, onChooseAnother = { onOpenPicker(Picker.Another(item.id, item.candidates)) })
+            ScanCard(t, item, actions, onChooseAnother = { onOpenPicker(Picker.Another(item.id, item.candidates)) })
         }
 
         if (onApply != null) {
@@ -370,16 +354,12 @@ private fun ResultsStage(ui: ScanUi, ai: AiState, actions: ScanActions, onScanAg
                 shape = RoundedCornerShape(14.dp),
             ) {
                 Text(
-                    if (confirmed > 0) "सारांश में जोड़ें · Use $confirmed confirmed in the summary" else "Confirm a medicine to use it in the summary",
+                    if (confirmed > 0) t.useConfirmed(confirmed) else t.confirmToUse,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
                 )
             }
-            Text(
-                "The paper gives the names. Timings, food and days stay exactly as the doctor said them.",
-                fontSize = 13.sp,
-                color = Muted,
-            )
+            Text(t.scanPrescriptionHint, fontSize = 13.sp, color = Muted)
         }
 
         Button(
@@ -387,26 +367,21 @@ private fun ResultsStage(ui: ScanUi, ai: AiState, actions: ScanActions, onScanAg
             modifier = Modifier.fillMaxWidth().height(58.dp),
             shape = RoundedCornerShape(14.dp),
         ) {
-            Text("दवा नहीं मिली? · Didn't find your medicine?", fontSize = 17.sp, fontWeight = FontWeight.Medium)
+            Text(t.didntFind, fontSize = 17.sp, fontWeight = FontWeight.Medium)
         }
         OutlinedButton(onClick = onScanAgain, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(14.dp)) {
-            Text("फिर से स्कैन करें · Scan again", fontSize = 16.sp)
+            Text(t.scanAgain, fontSize = 16.sp)
         }
 
-        WhatTheCameraRead(ui)
+        WhatTheCameraRead(t, ui)
 
-        Text(
-            "Samjho only shows what the camera read and the names you choose. It gives no medical advice. " +
-                "The photo stays on this phone.",
-            fontSize = 13.sp,
-            color = Muted,
-        )
+        Text(t.scanDisclaimer, fontSize = 13.sp, color = Muted)
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ScanCard(item: ScanItem, actions: ScanActions, onChooseAnother: () -> Unit) {
+private fun ScanCard(t: Strings, item: ScanItem, actions: ScanActions, onChooseAnother: () -> Unit) {
     val primary = MaterialTheme.colorScheme.primary
     val name = Lexicon.display(item.key)
 
@@ -414,52 +389,49 @@ private fun ScanCard(item: ScanItem, actions: ScanActions, onChooseAnother: () -
         when {
             item.isRejected -> {
                 Text(
-                    "हटाया गया · Dismissed: $name",
+                    "${t.dismissed}: $name",
                     fontSize = 16.sp,
                     color = Muted,
                     textDecoration = TextDecoration.LineThrough,
                 )
-                UndoText { actions.undo(item.id) }
+                UndoText(t) { actions.undo(item.id) }
             }
             else -> {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (item.isUnconfirmed) Pill("UNCONFIRMED", WarnTint, WarnInk) else Pill("CONFIRMED", OkTint, primary)
-                    Pill(basisLabel(item.basis), Color(0xFFEDEFF2), Muted)
+                    if (item.isUnconfirmed) Pill(t.unconfirmed, WarnTint, WarnInk) else Pill(t.confirmed, OkTint, primary)
+                    // Only the two labels that say who decided: the AI, or the patient. How close a spelling was is ours to know.
+                    when (item.basis) {
+                        ScanBasis.AI_MATCHED -> Pill(t.aiMatched, Color(0xFFEDEFF2), Muted)
+                        ScanBasis.PICKED -> Pill(t.pickedByYou, Color(0xFFEDEFF2), Muted)
+                        else -> Unit
+                    }
                 }
                 if (item.readAs != null) {
-                    Text("The camera read", fontSize = 13.sp, color = Muted)
+                    Text(t.cameraRead, fontSize = 13.sp, color = Muted)
                     Text("“${item.readAs}”", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Ink, fontFamily = FontFamily.Monospace)
-                    Text(if (item.isUnconfirmed) "Possibly" else "Confirmed as", fontSize = 13.sp, color = Muted)
+                    Text(if (item.isUnconfirmed) t.possibly else t.confirmedAs, fontSize = 13.sp, color = Muted)
                 }
                 Text(name, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = if (item.isUnconfirmed) AvoidInk else Ink)
 
                 if (item.isUnconfirmed) {
-                    Text("Check this against your prescription before confirming.", fontSize = 13.sp, color = AvoidInk)
+                    Text(t.checkAgainstPrescription, fontSize = 13.sp, color = AvoidInk)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Button(onClick = { actions.confirm(item.id) }, shape = RoundedCornerShape(12.dp)) { Text("Confirm", fontSize = 16.sp) }
-                        OutlinedButton(onClick = { actions.reject(item.id) }, shape = RoundedCornerShape(12.dp)) { Text("Reject", fontSize = 16.sp) }
-                        TextButton(onClick = onChooseAnother) { Text("Choose another", fontSize = 16.sp) }
+                        Button(onClick = { actions.confirm(item.id) }, shape = RoundedCornerShape(12.dp)) { Text(t.confirmButton, fontSize = 16.sp) }
+                        OutlinedButton(onClick = { actions.reject(item.id) }, shape = RoundedCornerShape(12.dp)) { Text(t.rejectButton, fontSize = 16.sp) }
+                        TextButton(onClick = onChooseAnother) { Text(t.chooseAnother, fontSize = 16.sp) }
                     }
                 } else {
-                    UndoText { actions.undo(item.id) }
+                    UndoText(t) { actions.undo(item.id) }
                 }
             }
         }
     }
 }
 
-private fun basisLabel(basis: ScanBasis) = when (basis) {
-    ScanBasis.EXACT -> "Exact name"
-    ScanBasis.SPELLING -> "Close spelling"
-    ScanBasis.SOUNDS_LIKE -> "Sounds similar"
-    ScanBasis.AI_MATCHED -> "AI matched"
-    ScanBasis.PICKED -> "Picked by you"
-}
-
 @Composable
-private fun UndoText(onClick: () -> Unit) {
+private fun UndoText(t: Strings, onClick: () -> Unit) {
     Text(
-        "वापस करें · Undo",
+        t.undo,
         color = MaterialTheme.colorScheme.primary,
         fontSize = 15.sp,
         fontWeight = FontWeight.Medium,
@@ -469,7 +441,7 @@ private fun UndoText(onClick: () -> Unit) {
 
 /** The raw text, collapsed by default: so it can be shown on stage, and so nothing looks invented. */
 @Composable
-private fun WhatTheCameraRead(ui: ScanUi) {
+private fun WhatTheCameraRead(t: Strings, ui: ScanUi) {
     var open by rememberSaveable { mutableStateOf(false) }
     Surface(color = Color.White, shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, Line), modifier = Modifier.fillMaxWidth()) {
         Column {
@@ -477,7 +449,7 @@ private fun WhatTheCameraRead(ui: ScanUi) {
                 Modifier.fillMaxWidth().clickable { open = !open }.padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("कैमरे ने क्या पढ़ा · What the camera read", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Ink, modifier = Modifier.weight(1f))
+                Text(t.showCameraRead, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Ink, modifier = Modifier.weight(1f))
                 Text(if (open) "▾" else "▸", fontSize = 18.sp, color = Muted)
             }
             if (open) {
@@ -485,12 +457,11 @@ private fun WhatTheCameraRead(ui: ScanUi) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     val read = ui.read
                     if (read == null || read.isEmpty) {
-                        Text("Nothing was read from the photo.", fontSize = 14.sp, color = Muted)
+                        Text(t.nothingRead, fontSize = 14.sp, color = Muted)
                     } else {
-                        RawBlock("Latin reader", read.latin)
-                        RawBlock("Devanagari reader", read.devanagari)
+                        RawBlock(read.latin)
+                        RawBlock(read.devanagari)
                     }
-                    if (ui.millis > 0) Text("Read on this phone in ${ui.millis} ms.", fontSize = 12.sp, color = Muted)
                 }
             }
         }
@@ -498,10 +469,10 @@ private fun WhatTheCameraRead(ui: ScanUi) {
 }
 
 @Composable
-private fun RawBlock(title: String, lines: List<String>) {
-    Text(title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Muted)
+private fun RawBlock(lines: List<String>) {
+    if (lines.isEmpty()) return
     Text(
-        if (lines.isEmpty()) "(nothing)" else lines.joinToString("\n"),
+        lines.joinToString("\n"),
         fontSize = 14.sp,
         fontFamily = FontFamily.Monospace,
         color = Ink,
@@ -519,7 +490,7 @@ private fun Panel(bg: Color = Color.White, content: @Composable ColumnScope.() -
 
 /** Every medicine in the lexicon, searchable. Typing goes straight to the search box: it is the fast path. */
 @Composable
-private fun PickerDialog(title: String, first: List<String>, already: Set<String>, onPick: (String) -> Unit, onDismiss: () -> Unit) {
+private fun PickerDialog(title: String, t: Strings, first: List<String>, already: Set<String>, onPick: (String) -> Unit, onDismiss: () -> Unit) {
     var query by remember { mutableStateOf("") }
     val entries = remember(query, first) { ScanSearch.filter(query, first) }
     val focus = remember { FocusRequester() }
@@ -529,20 +500,20 @@ private fun PickerDialog(title: String, first: List<String>, already: Set<String
             Column(Modifier.statusBarsPadding().navigationBarsPadding().imePadding().padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Ink, modifier = Modifier.weight(1f))
-                    TextButton(onClick = onDismiss) { Text("✕ रद्द · Close", fontSize = 15.sp) }
+                    TextButton(onClick = onDismiss) { Text("✕ ${t.close}", fontSize = 15.sp) }
                 }
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
                     singleLine = true,
-                    placeholder = { Text("Type a few letters, e.g. para") },
+                    placeholder = { Text(t.typeFewLetters) },
                     modifier = Modifier.fillMaxWidth().focusRequester(focus),
                 )
                 LaunchedEffect(Unit) { focus.requestFocus() }
                 Spacer(Modifier.height(8.dp))
                 if (entries.isEmpty()) {
                     Text(
-                        "No medicine with that name is in the list. Try fewer letters.",
+                        t.noNameInList,
                         fontSize = 15.sp,
                         color = Muted,
                         modifier = Modifier.padding(vertical = 16.dp),
@@ -555,7 +526,7 @@ private fun PickerDialog(title: String, first: List<String>, already: Set<String
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(entry.label, fontSize = 19.sp, color = Ink, modifier = Modifier.weight(1f))
-                            if (entry.key in already) Text("✓ added", fontSize = 13.sp, color = Muted)
+                            if (entry.key in already) Text(t.added, fontSize = 13.sp, color = Muted)
                         }
                         HorizontalDivider(color = Line)
                     }
