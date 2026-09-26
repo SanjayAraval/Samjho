@@ -66,6 +66,8 @@ data class Medicine(
     val confirmation: Confirmation = Confirmation.NOT_NEEDED,
     /** Lexicon medicines closest in sound, offered when the patient chooses another. */
     val candidates: List<String> = emptyList(),
+    /** What the app first took this to be. Undo returns to it even after the patient chose another. */
+    val suggested: String = key,
 ) {
     val missing: List<MissingField>
         get() = buildList {
@@ -82,8 +84,12 @@ data class Medicine(
 
     fun rejected() = copy(confirmation = Confirmation.REJECTED)
 
-    /** Undo a Yes or No: back to needing a decision, or to not needing one if it was heard outright. */
+    /**
+     * Undo a Yes, No or Choose: back to the app's original suggestion and to needing a decision (or
+     * to not needing one if it was heard outright). The patient's pick is not kept as the guess.
+     */
     fun reopened() = copy(
+        key = suggested,
         confirmation = if (basis == Basis.HEARD) Confirmation.NOT_NEEDED else Confirmation.UNCONFIRMED,
     )
 

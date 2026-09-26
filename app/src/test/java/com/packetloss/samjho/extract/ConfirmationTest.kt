@@ -164,6 +164,30 @@ class ConfirmationTest {
     }
 
     @Test
+    fun undoingAChoiceRestoresTheOriginalSuggestionNotThePatientsPick() {
+        // Found on the phone: choose Levocetirizine, press Undo, and it said "Possibly: Levocetirizine".
+        val e = realAndroid()
+        val i = indexOf(e, "cetirizine")
+        val chosen = e.updateMedicine(i) { it.choosing("levocetirizine") }
+        assertEquals("levocetirizine", chosen.medicines[i].key)
+
+        val undone = chosen.updateMedicine(i) { it.reopened() }
+        assertEquals("cetirizine", undone.medicines[i].key)
+        assertEquals(Confirmation.UNCONFIRMED, undone.medicines[i].confirmation)
+        assertEquals(e.medicines[i], undone.medicines[i]) // exactly as first extracted
+    }
+
+    @Test
+    fun choosingTwiceThenUndoStillReturnsToTheOriginalSuggestion() {
+        val e = realAndroid()
+        val i = indexOf(e, "cetirizine")
+        val after = e.updateMedicine(i) { it.choosing("levocetirizine") }
+            .updateMedicine(i) { it.choosing("salbutamol") }
+            .updateMedicine(i) { it.reopened() }
+        assertEquals("cetirizine", after.medicines[i].key)
+    }
+
+    @Test
     fun answeringOneMedicineNeverTouchesAnotherOrTheRestOfTheResult() {
         val e = realAndroid()
         val i = indexOf(e, "azithromycin")

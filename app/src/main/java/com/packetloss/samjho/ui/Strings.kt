@@ -47,6 +47,7 @@ class Strings(private val language: Language) {
     val undo = pick("वापस करें", "Undo")
     val dismissed = pick("हटाया गया", "Dismissed")
     val cancel = pick("रद्द करें", "Cancel")
+    val noOtherMatch = pick("कोई और मिलता-जुलता नाम नहीं मिला।", "No other close match to offer.")
     val checkName = pick(
         "नाम सुनने में गलती हो सकती है। डॉक्टर के शब्दों से मिलाकर पुष्टि करें।",
         "The name may have been misheard. Check it against the doctor's words, then confirm.",

@@ -316,7 +316,7 @@ private fun MedicineCard(index: Int, m: Medicine, extraction: Extraction, t: Str
                 color = Muted,
                 textDecoration = TextDecoration.LineThrough,
             )
-            TextButton(onClick = { actions.undo(index) }, contentPadding = PaddingValues(0.dp)) { Text(t.undo) }
+            UndoLink(t) { actions.undo(index) }
             DoctorWords(extraction, m.sourceLines, t)
             return@Panel
         }
@@ -368,20 +368,23 @@ private fun MedicineCard(index: Int, m: Medicine, extraction: Extraction, t: Str
                 TextButton(onClick = { choosing = true }) { Text(t.chooseAnother) }
             }
         } else if (inferred) {
-            TextButton(onClick = { actions.undo(index) }, contentPadding = PaddingValues(0.dp)) { Text(t.undo) }
+            UndoLink(t) { actions.undo(index) }
         }
 
         DoctorWords(extraction, m.sourceLines, t)
     }
 
     if (choosing) {
-        val options = m.candidates.filter { it != m.key }
+        // A medicine already listed elsewhere is not offered, so choosing can't create a duplicate card.
+        val taken = extraction.medicines.filterIndexed { j, other -> j != index && !other.isRejected }.map { it.key }.toSet()
+        val options = m.candidates.filter { it != m.key && it !in taken }
         AlertDialog(
             onDismissRequest = { choosing = false },
             title = { Text(t.chooseTitle) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("${t.heardAs} “${m.name}”", fontSize = 14.sp, color = Muted)
+                    if (options.isEmpty()) Text(t.noOtherMatch, fontSize = 15.sp, color = Muted)
                     options.forEach { key ->
                         TextButton(onClick = { choosing = false; actions.choose(index, key) }) {
                             Text(Lexicon.display(key), fontSize = 18.sp)
@@ -393,6 +396,20 @@ private fun MedicineCard(index: Int, m: Medicine, extraction: Extraction, t: Str
             dismissButton = { TextButton(onClick = { choosing = false }) { Text(t.cancel) } },
         )
     }
+}
+
+/** A plain text link, left-aligned with the other links; a TextButton would centre a short label. */
+@Composable
+private fun UndoLink(t: Strings, onClick: () -> Unit) {
+    Text(
+        t.undo,
+        color = MaterialTheme.colorScheme.primary,
+        fontSize = 15.sp,
+        fontWeight = FontWeight.Medium,
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+    )
 }
 
 /** What the patient can do with an unconfirmed medicine. Every answer is theirs; nothing is automatic. */
