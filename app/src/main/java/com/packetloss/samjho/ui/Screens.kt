@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -47,6 +48,7 @@ fun HomeScreen(onRunDemo: (DemoConsultation) -> Unit) {
         Column(
             Modifier
                 .fillMaxSize()
+                .systemBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(24.dp),
         ) {
@@ -111,6 +113,7 @@ fun ResultScreen(
         Column(
             Modifier
                 .fillMaxSize()
+                .systemBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -227,7 +230,7 @@ private fun TranscriptPanel(extraction: Extraction, t: Strings) {
     var open by remember { mutableStateOf(false) }
     Panel {
         TextButton(onClick = { open = !open }, contentPadding = PaddingValues(0.dp)) {
-            Text(if (open) t.hideWords else t.showWords, fontSize = 15.sp)
+            Text(if (open) t.hideWords else t.showTranscript, fontSize = 15.sp)
         }
         if (open) {
             extraction.lines.forEach { line ->

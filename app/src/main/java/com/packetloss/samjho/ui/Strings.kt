@@ -27,6 +27,7 @@ class Strings(private val language: Language) {
         "Ask your doctor or pharmacist.",
     )
     val showWords = pick("डॉक्टर के शब्द देखें", "Show the doctor's words")
+    val showTranscript = pick("पूरी बातचीत दिखाएँ", "Show full transcript")
     val hideWords = pick("छिपाएँ", "Hide")
     val nothingHere = pick("डॉक्टर ने इस बारे में कुछ नहीं कहा।", "The doctor did not mention this.")
 
