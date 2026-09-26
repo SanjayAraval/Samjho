@@ -30,6 +30,17 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Samjho">
 
+        <!-- Lets the share sheet read one summary file at a time, with no storage permission. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.share"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/share_paths" />
+        </provider>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

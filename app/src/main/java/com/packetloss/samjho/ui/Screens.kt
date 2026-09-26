@@ -16,7 +16,12 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.ui.text.style.TextDecoration
 import com.packetloss.samjho.AiState
+import com.packetloss.samjho.share.SummaryBuilder
+import com.packetloss.samjho.share.SummarySharer
 import com.packetloss.samjho.voice.Speaker
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import com.packetloss.samjho.extract.Lexicon
 import com.packetloss.samjho.model.Basis
 import com.packetloss.samjho.model.Confirmation
@@ -245,13 +250,55 @@ fun ResultScreen(
             Text(sourceLabel, fontSize = 13.sp, color = Muted)
             Text("${ruleMillis} ms", fontSize = 13.sp, color = Muted)
 
-            if (reading is Speaker.State.Speaking) {
-                OutlinedButton(onClick = onStopReading, shape = RoundedCornerShape(12.dp)) { Text(t.stopReading, fontSize = 16.sp) }
-            } else {
-                Button(onClick = onRead, shape = RoundedCornerShape(12.dp)) { Text(t.readAloud, fontSize = 16.sp) }
+            val context = LocalContext.current
+            var choosingShare by remember { mutableStateOf(false) }
+            var shareError by remember { mutableStateOf<String?>(null) }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (reading is Speaker.State.Speaking) {
+                    OutlinedButton(onClick = onStopReading, shape = RoundedCornerShape(12.dp)) { Text(t.stopReading, fontSize = 16.sp) }
+                } else {
+                    Button(onClick = onRead, shape = RoundedCornerShape(12.dp)) { Text(t.readAloud, fontSize = 16.sp) }
+                }
+                OutlinedButton(onClick = { shareError = null; choosingShare = true }, shape = RoundedCornerShape(12.dp)) {
+                    Text(t.share, fontSize = 16.sp)
+                }
             }
             if (reading is Speaker.State.Unavailable) {
                 Text(reading.reason, fontSize = 14.sp, color = WarnInk)
+            }
+            shareError?.let { Text("${t.shareFailed} $it", fontSize = 14.sp, color = WarnInk) }
+
+            if (choosingShare) {
+                val pending = extraction.medicines.count { it.isUnconfirmed }
+                val send: (SummarySharer.Format) -> Unit = { format ->
+                    choosingShare = false
+                    val stamp = SimpleDateFormat(
+                        "d MMM yyyy, HH:mm",
+                        if (extraction.language == Language.HINDI) Locale("hi", "IN") else Locale.ENGLISH,
+                    ).format(Date())
+                    SummarySharer.share(
+                        context = context,
+                        doc = SummaryBuilder.build(extraction, t, stamp),
+                        format = format,
+                        caption = t.shareCaption,
+                        chooserTitle = t.shareTitle,
+                        onError = { shareError = it },
+                    )
+                }
+                AlertDialog(
+                    onDismissRequest = { choosingShare = false },
+                    title = { Text(t.shareTitle) },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (pending > 0) Text(t.shareUnconfirmed(pending), fontSize = 14.sp, color = AvoidInk)
+                            TextButton(onClick = { send(SummarySharer.Format.IMAGE) }) { Text(t.shareAsImage, fontSize = 16.sp) }
+                            TextButton(onClick = { send(SummarySharer.Format.PDF) }) { Text(t.shareAsPdf, fontSize = 16.sp) }
+                        }
+                    },
+                    confirmButton = {},
+                    dismissButton = { TextButton(onClick = { choosingShare = false }) { Text(t.cancel) } },
+                )
             }
 
             val toConfirm = extraction.medicines.count { it.isUnconfirmed }
