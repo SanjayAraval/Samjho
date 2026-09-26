@@ -225,7 +225,7 @@ fun ResultScreen(
     ai: AiState,
     llm: LlmStatus,
     reading: Speaker.State,
-    onRead: () -> Unit,
+    onRead: (Language) -> Unit,
     onStopReading: () -> Unit,
     /** Opens the prescription scan, whose confirmed names are then merged into this summary. */
     onScanPrescription: () -> Unit,
@@ -271,7 +271,7 @@ fun ResultScreen(
                 if (reading is Speaker.State.Speaking) {
                     OutlinedButton(onClick = onStopReading, shape = RoundedCornerShape(12.dp)) { Text(t.stopReading, fontSize = 16.sp) }
                 } else {
-                    Button(onClick = onRead, shape = RoundedCornerShape(12.dp)) { Text(t.readAloud, fontSize = 16.sp) }
+                    Button(onClick = { onRead(lang) }, shape = RoundedCornerShape(12.dp)) { Text(t.readAloud, fontSize = 16.sp) }
                 }
                 OutlinedButton(onClick = { shareError = null; choosingShare = true }, shape = RoundedCornerShape(12.dp)) {
                     Text(t.share, fontSize = 16.sp)

@@ -172,11 +172,12 @@ class SamjhoViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Reads the result on screen aloud, exactly as shown, using only an offline voice. */
-    fun readAloud() {
+    fun readAloud(language: Language) {
         val e = state.extraction ?: return
-        val sentences = ReadAloudScript.build(e, Strings(e.language))
-        Log.i(NAMES, "read-aloud: ${sentences.size} sentences, language=${e.language}")
-        speaker.speak(e.language, sentences) { s -> main.post { state = state.copy(reading = s) } }
+        // [language] is the one the screen is showing, so the voice says what the patient is looking at.
+        val sentences = ReadAloudScript.build(e, Strings(language))
+        Log.i(NAMES, "read-aloud: ${sentences.size} sentences, language=$language")
+        speaker.speak(language, sentences) { s -> main.post { state = state.copy(reading = s) } }
     }
 
     fun stopReading() = speaker.stop()
