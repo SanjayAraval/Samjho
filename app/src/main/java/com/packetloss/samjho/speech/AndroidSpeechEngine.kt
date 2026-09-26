@@ -14,6 +14,7 @@ import android.speech.SpeechRecognizer
 import com.packetloss.samjho.extract.Lexicon
 import com.packetloss.samjho.model.Hypothesis
 import com.packetloss.samjho.model.Language
+import android.os.SystemClock
 
 /**
  * The phone's own speech recogniser, biased toward the medicine names in [Lexicon].
@@ -26,8 +27,10 @@ import com.packetloss.samjho.model.Language
  *    permission would not stop it, because the audio leaves from another app's process. The mode
  *    is therefore shown on screen and logged, never hidden.
  *
- * A recogniser ends after each utterance, so it is restarted on every result to capture a whole
- * consultation as many lines. Must be driven from the main thread.
+ * A recogniser works in windows that end by themselves (on this phone about eight seconds in, often with
+ * NO_MATCH and no result). [ContinuousTranscript] turns that into one continuous recording: the words of a
+ * window are never discarded, a pause becomes a line, every end of a window restarts listening, and only
+ * [stop] ends the session. Must be driven from the main thread.
  */
 class AndroidSpeechEngine(context: Context) : SpeechEngine {
 
@@ -40,6 +43,12 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
 
     private val appContext = context.applicationContext
     private val main = Handler(Looper.getMainLooper())
+    private val tones = TonesMuter(context)
+
+    init {
+        // If the app was killed in the middle of a recording, the phone may still be muted from it.
+        tones.restore()
+    }
 
     private var recognizer: SpeechRecognizer? = null
     private var listener: SpeechEngine.Listener? = null
@@ -49,10 +58,13 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
 
     private var session = 0
     private var announced = false
-    private var lastPartial = ""
     private var lineCount = 0
-    private var errorStreak = 0
     private var tagIndex = 0
+
+    /** Decides what happens each time the recogniser ends a window; see [ContinuousTranscript]. */
+    private var transcript = ContinuousTranscript()
+
+    private fun now() = SystemClock.elapsedRealtime()
 
     private fun onDeviceAvailable() =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -68,17 +80,20 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
         this.language = language
         this.listener = listener
         announced = false
-        lastPartial = ""
         lineCount = 0
-        errorStreak = 0
         tagIndex = 0
+        transcript = ContinuousTranscript()
+        tones.mute()
 
         intent = buildIntent(languageTag(language))
         open(mine, if (onDeviceAvailable()) Mode.ON_DEVICE else Mode.SYSTEM)
+        tickLater(mine)
     }
 
+    /** Only the user ends a recording. This returns the words still in flight and guarantees nothing restarts. */
     override fun stop(): String {
-        val pending = lastPartial.trim()
+        val pending = transcript.stop()
+        SpeechLog.event(id, "stop requested, ${pending.length} chars in flight")
         stopInternal()
         return pending
     }
@@ -99,11 +114,12 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
         )
         logInstalledLanguages(r, intent!!)
         r.startListening(intent)
+        transcript.onWindowOpened(now())
     }
 
     private fun stopInternal() {
         session++
-        lastPartial = ""
+        tones.restore()
         main.removeCallbacksAndMessages(null)
         recognizer?.let {
             it.cancel()
@@ -152,7 +168,10 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
 
     private fun callbacks(mine: Int) = object : RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) {
-            if (mine != session || announced) return
+            if (mine != session) return
+            SpeechLog.event(id, "ready")
+            transcript.onReady(now())
+            if (announced) return
             announced = true
             listener?.onListening("${mode.label} · ${languageTag(language)}")
         }
@@ -160,41 +179,40 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
         override fun onPartialResults(partialResults: Bundle?) {
             if (mine != session) return
             val text = firstResult(partialResults) ?: return
-            lastPartial = text
+            transcript.onPartial(text, now())
             listener?.onPartial(text)
         }
 
         override fun onResults(results: Bundle?) {
             if (mine != session) return
-            errorStreak = 0
-            lastPartial = ""
             val hypotheses = hypothesesOf(results)
             val text = hypotheses.firstOrNull()?.text?.trim().orEmpty()
-            if (text.isNotEmpty()) {
-                SpeechLog.line(id, language, lineCount, text, mode.label)
-                SpeechLog.hypotheses(id, language, lineCount, hypotheses)
-                lineCount++
-                listener?.onLine(text, hypotheses)
-            }
-            restart(mine, 60)
+            SpeechLog.event(id, "results (${text.length} chars)")
+            apply(mine, transcript.onResults(text, now()), hypotheses)
         }
 
         override fun onError(error: Int) {
             if (mine != session) return
-            if (error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
-                SpeechLog.error(id, language, "recogniser error code=$error mode=${mode.label}")
-            }
+            SpeechLog.event(id, "error code=$error")
             when (error) {
-                // Silence or nothing recognised is normal between sentences: just listen again.
-                SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> restart(mine, 60)
+                // Silence or nothing recognised is normal, and must never end the recording. Whatever was heard in the
+                // window is kept: NO_MATCH after a long window is exactly how sentences used to be lost.
+                SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT ->
+                    apply(mine, transcript.onEnded(ContinuousTranscript.EndKind.SILENT, now()))
                 SpeechRecognizer.ERROR_RECOGNIZER_BUSY, SpeechRecognizer.ERROR_CLIENT -> {
-                    if (++errorStreak > MAX_ERROR_STREAK) fail(mine, describe(error)) else restart(mine, 400)
+                    SpeechLog.error(id, language, "recogniser not ready code=$error mode=${mode.label}")
+                    apply(mine, transcript.onEnded(ContinuousTranscript.EndKind.NOT_READY, now()))
                 }
-                // The service dropped our connection, usually because a recogniser was torn down a
-                // moment ago. A fresh recogniser after a pause normally reconnects.
-                SpeechRecognizer.ERROR_SERVER_DISCONNECTED ->
-                    if (++errorStreak > MAX_ERROR_STREAK) fail(mine, describe(error)) else reopen(mine, mode)
-                SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE ->
+                // The service dropped our connection, usually because a recogniser was torn down a moment ago. A
+                // fresh recogniser after a pause normally reconnects; what was heard is committed first.
+                SpeechRecognizer.ERROR_SERVER_DISCONNECTED -> {
+                    SpeechLog.error(id, language, "recogniser error code=$error mode=${mode.label}")
+                    commitOnly(mine, transcript.onEnded(ContinuousTranscript.EndKind.NOT_READY, now()))
+                    reopen(mine, mode)
+                }
+                SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> {
+                    SpeechLog.error(id, language, "recogniser error code=$error mode=${mode.label}")
+                    commitOnly(mine, transcript.onEnded(ContinuousTranscript.EndKind.SILENT, now()))
                     if (mode == Mode.ON_DEVICE && SpeechRecognizer.isRecognitionAvailable(appContext)) {
                         SpeechLog.error(id, language, "on-device has no ${languageTag(language)} model; switching to system recogniser")
                         reopen(mine, Mode.SYSTEM)
@@ -205,15 +223,66 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
                         SpeechLog.error(id, language, "no offline $from model; falling back to ${languageTag(language)}")
                         reopen(mine, Mode.SYSTEM)
                     } else fail(mine, describe(error))
-                else -> fail(mine, describe(error))
+                }
+                else -> {
+                    SpeechLog.error(id, language, "recogniser error code=$error mode=${mode.label}")
+                    commitOnly(mine, transcript.onEnded(ContinuousTranscript.EndKind.SILENT, now()))
+                    fail(mine, describe(error))
+                }
             }
         }
 
-        override fun onBeginningOfSpeech() = Unit
+        override fun onBeginningOfSpeech() {
+            if (mine == session) SpeechLog.event(id, "beginning-of-speech")
+        }
+
+        override fun onEndOfSpeech() {
+            if (mine != session) return
+            SpeechLog.event(id, "end-of-speech")
+            transcript.onEndOfSpeech(now())
+        }
+
         override fun onRmsChanged(rmsdB: Float) = Unit
         override fun onBufferReceived(buffer: ByteArray?) = Unit
-        override fun onEndOfSpeech() = Unit
         override fun onEvent(eventType: Int, params: Bundle?) = Unit
+    }
+
+    /**
+     * Carries out what [ContinuousTranscript] decided. [finalHypotheses] is the N-best list of a real final result,
+     * used for the line that result produced; a line rescued from a partial has only its one reading.
+     */
+    private fun apply(mine: Int, steps: List<ContinuousTranscript.Step>, finalHypotheses: List<Hypothesis> = emptyList()) {
+        for (step in steps) {
+            if (mine != session) return
+            when (step) {
+                is ContinuousTranscript.Step.Commit -> commit(step, finalHypotheses)
+                is ContinuousTranscript.Step.Restart -> restart(mine, step)
+                is ContinuousTranscript.Step.Fail -> fail(mine, step.reason)
+            }
+        }
+    }
+
+    /** Lines only, no restart: used when the caller is about to rebuild the recogniser or give up. */
+    private fun commitOnly(mine: Int, steps: List<ContinuousTranscript.Step>) {
+        steps.filterIsInstance<ContinuousTranscript.Step.Commit>().forEach { if (mine == session) commit(it, emptyList()) }
+    }
+
+    private fun commit(step: ContinuousTranscript.Step.Commit, finalHypotheses: List<Hypothesis>) {
+        val hypotheses = if (!step.fromPartial && finalHypotheses.isNotEmpty()) finalHypotheses else Hypotheses.build(listOf(step.text), null)
+        SpeechLog.event(id, "commit ${if (step.fromPartial) "from partial" else "final"} (${step.text.length} chars)")
+        SpeechLog.line(id, language, lineCount, step.text, mode.label)
+        SpeechLog.hypotheses(id, language, lineCount, hypotheses)
+        lineCount++
+        listener?.onLine(step.text, hypotheses)
+    }
+
+    /** Checks every half second for a window that has stalled, hung or gone quiet. Stops by itself when the session ends. */
+    private fun tickLater(mine: Int) {
+        main.postDelayed({
+            if (mine != session) return@postDelayed
+            apply(mine, transcript.onTick(now()))
+            tickLater(mine)
+        }, TICK_MS)
     }
 
     /** Swaps in a fresh recogniser after a pause, so the speech service can finish closing the old one. */
@@ -223,16 +292,26 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
         main.postDelayed({ if (mine == session) open(mine, wanted) }, REOPEN_DELAY_MS)
     }
 
-    private fun restart(mine: Int, delayMs: Long) {
+    private fun restart(mine: Int, step: ContinuousTranscript.Step.Restart) {
+        val how = (if (step.cancelFirst) " (cancelling the open window)" else "") + (if (step.recreate) " (new recogniser)" else "")
+        SpeechLog.event(id, "restart in ${step.delayMs} ms$how")
+        if (step.cancelFirst) runCatching { recognizer?.cancel() }
+        if (step.recreate) {
+            recognizer?.let { runCatching { it.cancel() }; runCatching { it.destroy() } }
+            recognizer = null
+            main.postDelayed({ if (mine == session) open(mine, mode) }, maxOf(step.delayMs, REOPEN_DELAY_MS))
+            return
+        }
         main.postDelayed({
             if (mine != session) return@postDelayed
             val i = intent ?: return@postDelayed
             try {
                 recognizer?.startListening(i)
+                transcript.onWindowOpened(now())
             } catch (t: Throwable) {
                 fail(mine, t.message ?: "Could not restart listening")
             }
-        }, delayMs)
+        }, step.delayMs)
     }
 
     private fun fail(mine: Int, message: String) {
@@ -272,8 +351,9 @@ class AndroidSpeechEngine(context: Context) : SpeechEngine {
     private fun languageTag(language: Language) = tags(language)[tagIndex.coerceAtMost(tags(language).lastIndex)]
 
     companion object {
-        private const val PAUSE_MS = 1500L
-        private const val MAX_ERROR_STREAK = 8
+        /** Asked of the recogniser to tolerate longer pauses. Many phones ignore it; the restart policy is the real fix. */
+        private const val PAUSE_MS = 3500L
+        private const val TICK_MS = 500L
         private const val MAX_HYPOTHESES = 5
         private const val REOPEN_DELAY_MS = 600L
     }

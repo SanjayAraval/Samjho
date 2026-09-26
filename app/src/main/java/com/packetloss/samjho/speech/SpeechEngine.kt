@@ -62,6 +62,11 @@ object SpeechLog {
         }
     }
 
+    /** A recogniser callback or a restart, with no transcript text, so a run shows exactly what happened during a pause. */
+    fun event(engine: EngineId, message: String) {
+        Log.i(TAG, "engine=${engine.name} EVENT $message")
+    }
+
     fun error(engine: EngineId, language: Language, message: String) {
         Log.w(TAG, "engine=${engine.name} lang=$language ERROR $message")
     }
