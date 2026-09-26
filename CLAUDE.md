@@ -45,6 +45,12 @@ These are the product. Several are enforced by tests; do not weaken a test to ge
   demo-ready. Features, releases and anything else: ask first. Never force-push. Run the tests first.
 - **Verify on the phone.** Tests do not prove a UI change works. If the phone is locked, stop and ask;
   never try to get past a lock screen. Say if you change any phone setting (auto-rotate is currently off).
+- **Adding medicines to `Lexicon.kt` is not "just data".** Every form also feeds the sound-alike matcher, so
+  each new spelling is a chance for an ordinary word to become a guess (`tablet` -> Rablet, `practice` -> Practin,
+  `always` -> Liv-52). Test a candidate form against common English and Hindi words and against the words in the
+  real transcripts and negative tests before it goes in; `LexiconIntegrityTest` and the `Real*`/`Phonetic` tests are
+  the gate. The note above `ENTRIES` lists the names that were left out and why. Do not loosen a threshold or a
+  test to fit a name in: decide it explicitly.
 - **Real captures become fixtures.** Raw recogniser output goes into a `Real*Test` unedited. Rules are
   tuned against real data, and every loosening gets negative tests (`doctor`, `please`, `practice`, ...).
 - **Models and Gemma stay out of git.** No LFS, no committed APKs. `scripts/setup-phone.ps1` copies the
