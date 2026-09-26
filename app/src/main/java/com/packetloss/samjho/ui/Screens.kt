@@ -1,6 +1,15 @@
 package com.packetloss.samjho.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.Checkbox
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import com.packetloss.samjho.model.Language
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -43,7 +52,30 @@ import com.packetloss.samjho.model.Note
 // ------------------------------------------------------------------ home
 
 @Composable
-fun HomeScreen(onRunDemo: (DemoConsultation) -> Unit) {
+fun HomeScreen(
+    bundledModels: Set<Language>,
+    onRunDemo: (DemoConsultation) -> Unit,
+    onRecord: (Language) -> Unit,
+) {
+    val context = LocalContext.current
+    var consent by remember { mutableStateOf(false) }
+    var pending by remember { mutableStateOf<Language?>(null) }
+    var micDenied by remember { mutableStateOf(false) }
+    val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val lang = pending
+        pending = null
+        if (granted && lang != null) onRecord(lang) else micDenied = true
+    }
+    fun record(lang: Language) {
+        micDenied = false
+        val has = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        if (has) onRecord(lang) else {
+            pending = lang
+            askMic.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
     Surface(color = MaterialTheme.colorScheme.background) {
         Column(
             Modifier
@@ -66,9 +98,64 @@ fun HomeScreen(onRunDemo: (DemoConsultation) -> Unit) {
             Spacer(Modifier.height(18.dp))
             Pill("पूरी तरह ऑफ़लाइन · Fully offline", OkTint, MaterialTheme.colorScheme.primary)
 
-            Spacer(Modifier.height(36.dp))
+            Spacer(Modifier.height(28.dp))
             Text(
-                "एक नमूना बातचीत देखें · Try a demo consultation",
+                "बातचीत रिकॉर्ड करें · Record a consultation",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                color = Muted,
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { consent = !consent },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(checked = consent, onCheckedChange = { consent = it })
+                Text(
+                    "डॉक्टर ने रिकॉर्डिंग की अनुमति दी है\nThe doctor has agreed to be recorded",
+                    fontSize = 14.sp,
+                    color = Ink,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            val recordable = Language.entries.filter { it in bundledModels }
+            if (recordable.isEmpty()) {
+                Text(
+                    "Speech models are not installed in this build.",
+                    fontSize = 14.sp,
+                    color = WarnInk,
+                )
+            }
+            recordable.forEach { lang ->
+                Button(
+                    onClick = { record(lang) },
+                    enabled = consent,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(58.dp),
+                    shape = RoundedCornerShape(14.dp),
+                ) {
+                    Text(
+                        if (lang == Language.HINDI) "🎙  हिंदी में रिकॉर्ड करें" else "🎙  Record in English",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+            }
+            if (micDenied) {
+                Text(
+                    "माइक की अनुमति चाहिए · Microphone permission is needed to record.",
+                    fontSize = 14.sp,
+                    color = WarnInk,
+                )
+            }
+
+            Spacer(Modifier.height(28.dp))
+            Text(
+                "या नमूना बातचीत देखें · Or try a demo consultation",
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
                 color = Muted,

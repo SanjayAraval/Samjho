@@ -58,6 +58,59 @@ object Lexicon {
     private val FUZZY_CANDIDATES: List<Entry> =
         BY_FORM.entries.map { Entry(it.value, it.key) }.filter { it.form.length >= 5 }
 
+    private data class Skeleton(val key: String, val skeleton: String)
+
+    private val SKELETONS: List<Skeleton> = BY_FORM.entries
+        .map { Skeleton(it.value, Phonetic.skeleton(it.key)) }
+        .filter { it.skeleton.length >= 2 }
+        .distinct()
+
+    /**
+     * Matches a token by how it SOUNDS, for brand names the small speech models mangle
+     * ("pracite" for paracetamol, "dollar" for dolo). Looser than [match], so callers must only
+     * use it where dosing context already sits next to the token.
+     *
+     * Every accepted match needs the same first consonant, and it returns null when the best
+     * tier is ambiguous between two different medicines rather than picking one.
+     */
+    fun matchPhonetic(normalizedToken: String): String? {
+        val token = Phonetic.skeleton(normalizedToken)
+        if (token.length < 2) return null
+
+        var bestRank = Int.MAX_VALUE
+        val keys = mutableSetOf<String>()
+        for (c in SKELETONS) {
+            val rank = phoneticRank(token, c.skeleton, normalizedToken.length) ?: continue
+            if (rank < bestRank) {
+                bestRank = rank
+                keys.clear()
+            }
+            if (rank == bestRank) keys += c.key
+        }
+        return keys.singleOrNull()
+    }
+
+    /** 0 = same skeleton, 1 = clipped prefix, 2 = one slip. Lower is a tighter match. */
+    private fun phoneticRank(token: String, lex: String, tokenLength: Int): Int? {
+        if (token[0] != lex[0]) return null
+
+        // A two-consonant skeleton (dolo = "dl") is too short to trust on its own, so it only
+        // accepts a longer, clearly word-like token that begins with it ("dollar" = "dlr").
+        if (lex.length == 2) {
+            return if (token.length == 3 && token.startsWith(lex) && tokenLength >= 5) 2 else null
+        }
+
+        if (token == lex) return 0
+
+        // Below four consonants a one-letter slip stops meaning "misheard" and starts meaning
+        // "a different word": "fried" is one slip from ferrous (frs), "pain" from pan (pn).
+        if (token.length >= 4 && token.length < lex.length &&
+            token.length * 10 >= lex.length * 6 && lex.startsWith(token)
+        ) return 1
+        if (token.length >= 4 && lex.length >= 4 && Normalize.editDistance(token, lex) <= 1) return 2
+        return null
+    }
+
     /**
      * Returns the canonical key for a spoken token, or null. Exact match first; a short edit
      * distance is allowed only for longer words, where a one-character slip is far more likely

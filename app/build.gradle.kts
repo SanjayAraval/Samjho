@@ -55,5 +55,9 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
+    // Offline speech recognition. @aar keeps JNA as an Android library rather than a desktop jar.
+    implementation("com.alphacephei:vosk-android:0.3.47@aar")
+    implementation("net.java.dev.jna:jna:5.13.0@aar")
+
     testImplementation("junit:junit:4.13.2")
 }

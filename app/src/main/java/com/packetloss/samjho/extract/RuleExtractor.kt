@@ -177,11 +177,36 @@ object RuleExtractor {
         tokens.forEachIndexed { u, t ->
             if (t.normalized !in DOSAGE_FORMS) return@forEachIndexed
             val candidate = neighbourBefore(tokens, u) ?: neighbourAfter(tokens, u) ?: return@forEachIndexed
-            val key = Lexicon.match(candidate.normalized) ?: candidate.normalized
+            val key = Lexicon.match(candidate.normalized)
+                ?: Lexicon.matchPhonetic(candidate.normalized)
+                ?: candidate.normalized
             out.putIfAbsent(key, Found(key, candidate.display))
         }
 
+        // Brand names the speech model mangled, away from any dosage-form word: accepted only
+        // when dosing words sit right next to the token, so plain speech can't produce a drug.
+        tokens.forEachIndexed { i, t ->
+            if (blocked(t) || !nearDosing(tokens, i)) return@forEachIndexed
+            val key = Lexicon.matchPhonetic(t.normalized) ?: return@forEachIndexed
+            out.putIfAbsent(key, Found(key, t.display))
+        }
+
         return out.values.toList()
+    }
+
+    private val DOSING_WORDS = setOf(
+        "times", "daily", "twice", "once", "thrice", "after", "before", "food", "meal", "meals",
+        "morning", "afternoon", "evening", "night", "bedtime", "days", "weeks", "empty",
+        "बार", "दिन", "खाने", "भोजन", "सुबह", "दोपहर", "शाम", "रात", "बाद", "पहले", "रोज", "रोजाना",
+        "हफ्ते", "खाली",
+    )
+
+    private fun nearDosing(tokens: List<Normalize.Token>, i: Int): Boolean {
+        val from = maxOf(0, i - 3)
+        val to = minOf(tokens.lastIndex, i + 3)
+        return (from..to).any { j ->
+            j != i && (tokens[j].normalized in DOSAGE_FORMS || tokens[j].normalized in DOSING_WORDS)
+        }
     }
 
     private fun neighbourBefore(tokens: List<Normalize.Token>, u: Int): Normalize.Token? {
