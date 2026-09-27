@@ -63,6 +63,9 @@ These are the product. Several are enforced by tests; do not weaken a test to ge
 - Tests: `.\gradlew.bat :app:testDebugUnitTest` (needs `ANDROID_HOME`, or a `local.properties` with `sdk.dir`).
 - Demo build, install, Gemma: `.\scripts\setup-phone.ps1 -ModelsPath <dir> -GemmaPath <.task>`.
 - Test phone: iQOO I2501, adb serial `10BFBK0TN8001GJ`, Android 16.
+- Debug-only hook (`src/debug`): `adb shell am broadcast -n com.packetloss.samjho/.debug.DebugAskReceiver` replays a live
+  transcript and logs the model's raw reply to one line's real question (`adb logcat -s SamjhoAsk`); needs the phone
+  awake with Samjho in front, and Samjho already opened once (a stopped app gets no broadcasts).
 - Logs: `adb logcat -s SamjhoSpeech SamjhoNames SamjhoVoice SamjhoShare SamjhoLlm SamjhoScan` (engine and mode per line,
   how each medicine was identified and what the patient decided, read-aloud, share, model backend and speed).
 

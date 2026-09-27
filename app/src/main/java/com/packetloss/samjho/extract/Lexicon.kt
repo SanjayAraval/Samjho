@@ -415,10 +415,11 @@ object Lexicon {
     private val FUZZY_CANDIDATES: List<Entry> =
         BY_FORM.entries.map { Entry(it.value, it.key) }.filter { it.form.length >= 5 }
 
-    private data class Skeleton(val key: String, val skeleton: String)
+    /** [form] is the spelling the skeleton came from, so a very short entry can be compared letter by letter. */
+    private data class Skeleton(val key: String, val skeleton: String, val form: String)
 
     private val SKELETONS: List<Skeleton> = BY_FORM.entries
-        .map { Skeleton(it.value, Phonetic.skeleton(it.key)) }
+        .map { Skeleton(it.value, Phonetic.skeleton(it.key), it.key) }
         .filter { it.skeleton.length >= 2 }
         .distinct()
 
@@ -437,7 +438,7 @@ object Lexicon {
         var bestRank = Int.MAX_VALUE
         val keys = mutableSetOf<String>()
         for (c in SKELETONS) {
-            val rank = phoneticRank(token, c.skeleton, normalizedToken.length) ?: continue
+            val rank = phoneticRank(token, c.skeleton, normalizedToken, c.form) ?: continue
             if (rank < bestRank) {
                 bestRank = rank
                 keys.clear()
@@ -706,8 +707,12 @@ object Lexicon {
         }.sortedWith(compareBy({ it.distance }, { it.key })).take(limit)
     }
 
+    /** Of a very short entry's letters, the share that may differ from the heard word. Not the shortlist's MAX_DISTANCE. */
+    private const val SHORT_ENTRY_MAX_LETTER_DISTANCE = 0.5
+
     /** 0 = same skeleton, 1 = clipped prefix, 2 = one slip. Lower is a tighter match. */
-    private fun phoneticRank(token: String, lex: String, tokenLength: Int): Int? {
+    private fun phoneticRank(token: String, lex: String, word: String, form: String): Int? {
+        val tokenLength = word.length
         // Speech models often drop the first syllable ("azithromycin" heard as "thromison", so
         // "strmsn" arrives as "trmsn"). At five or more consonants a single slip anywhere is far
         // too specific to be a coincidence, so only the one-slip tier may ignore the first letter.
@@ -715,10 +720,15 @@ object Lexicon {
             return if (token.length >= 5 && lex.length >= 5 && Normalize.editDistance(token, lex) <= 1) 2 else null
         }
 
-        // A two-consonant skeleton (dolo = "dl") is too short to trust on its own, so it only
-        // accepts a longer, clearly word-like token that begins with it ("dollar" = "dlr").
+        // A two-consonant skeleton (dolo = "dl", ors = "rs") is too short to trust on its own, so it only
+        // accepts a longer, clearly word-like token that begins with it ("dollar" = "dlr"). Two shared consonants
+        // are also all that "resin", "reason" and "russian" have with ORS, or "panel" and "paint" with Pan, so the
+        // WORD itself must be close to the entry, letter by letter: at most half its letters may differ. "dollar" for
+        // dolo is exactly half; "resin" for ORS is four fifths.
         if (lex.length == 2) {
-            return if (token.length == 3 && token.startsWith(lex) && tokenLength >= 5) 2 else null
+            if (token.length != 3 || !token.startsWith(lex) || tokenLength < 5) return null
+            val distance = Normalize.editDistance(word, form).toDouble() / maxOf(word.length, form.length)
+            return if (distance <= SHORT_ENTRY_MAX_LETTER_DISTANCE) 2 else null
         }
 
         if (token == lex) return 0

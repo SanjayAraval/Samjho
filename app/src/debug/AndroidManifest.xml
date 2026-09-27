@@ -5,5 +5,10 @@
         <receiver
             android:name=".reminders.DebugRemindReceiver"
             android:exported="true" />
+
+        <!-- Debug builds only: asks the on-device model one real question and logs its raw reply. -->
+        <receiver
+            android:name=".debug.DebugAskReceiver"
+            android:exported="true" />
     </application>
 </manifest>

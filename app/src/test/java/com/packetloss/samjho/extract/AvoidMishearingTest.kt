@@ -165,9 +165,17 @@ class RealAwardRunTest {
     }
 
     @Test
-    fun theResinCardIsUnconfirmedAndCetirizineIsOnItsChooseAnotherList() {
-        val resin = e.medicines.first { it.name == "resin" }
-        assertEquals(Confirmation.UNCONFIRMED, resin.confirmation)
-        assertTrue("cetirizine" in resin.candidates)
+    fun resinIsNoLongerTakenForOrs() {
+        // "resin" only shares two consonants with ORS; it used to become an ORS card.
+        assertTrue(e.medicines.none { it.key == "ors" })
+        assertTrue(e.medicines.none { it.name == "resin" })
+    }
+
+    @Test
+    fun cetirizineIsOnTheShortlistForThatLine() {
+        val already = e.medicines.map { it.key }.toSet()
+        val candidates = NameRepair.candidatesFor("Once it resin at night before sleeping", already)
+        assertTrue("cetirizine" in candidates.map { it.key })
+        assertTrue(candidates.size <= NameRepair.MAX_CANDIDATES)
     }
 }
