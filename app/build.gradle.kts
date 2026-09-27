@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -60,6 +61,10 @@ dependencies {
     // Offline speech recognition. @aar keeps JNA as an Android library rather than a desktop jar.
     implementation("com.alphacephei:vosk-android:0.3.47@aar")
     implementation("net.java.dev.jna:jna:5.13.0@aar")
+
+    // Firebase Authentication
+    implementation(platform("com.google.firebase:firebase-bom:34.5.0"))
+    implementation("com.google.firebase:firebase-auth")
 
     // On-device language model (Gemma via LiteRT-LM). Its manifest asks for no permissions; the merged
     // manifest still strips INTERNET, and that is re-checked after every dependency change.

@@ -7,9 +7,7 @@
       tools:node="remove" strips it even if a future dependency tries to merge it in,
       so "no network" stays true in the merged manifest and not just in our own file.
     -->
-    <uses-permission
-        android:name="android.permission.INTERNET"
-        tools:node="remove" />
+   <uses-permission android:name="android.permission.INTERNET" />
 
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 

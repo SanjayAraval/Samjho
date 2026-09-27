@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "292262808284",
+    "project_id": "samjho-e719e",
+    "storage_bucket": "samjho-e719e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:292262808284:android:c87cc24503d366073f8219",
+        "android_client_info": {
+          "package_name": "com.packetloss.samjho"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBE0sjsUwaiuXrJsdqByQbPZQFVJbAFxuc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
