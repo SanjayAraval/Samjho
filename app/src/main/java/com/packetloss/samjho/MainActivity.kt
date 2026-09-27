@@ -5,7 +5,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,25 +34,11 @@ class MainActivity : ComponentActivity() {
                     mutableStateOf(auth.currentUser)
                 }
 
-                DisposableEffect(auth) {
-
-                    val listener = FirebaseAuth.AuthStateListener {
-                        user = it.currentUser
-                    }
-
-                    auth.addAuthStateListener(listener)
-
-                    onDispose {
-                        auth.removeAuthStateListener(listener)
-                    }
-                }
-
                 if (user == null) {
 
                     LoginScreen(
                         onAuthSuccess = {
-                            // Firebase AuthStateListener
-                            // updates the user automatically.
+                            user = auth.currentUser
                         }
                     )
 
@@ -62,6 +47,7 @@ class MainActivity : ComponentActivity() {
                     SamjhoApp(
                         onLogout = {
                             auth.signOut()
+                            user = null
                         }
                     )
                 }
@@ -80,8 +66,11 @@ fun SamjhoApp(
     val recording = state.recording
 
     when {
+
         recording != null -> {
-            BackHandler(onBack = viewModel::cancelRecording)
+            BackHandler(
+                onBack = viewModel::cancelRecording
+            )
 
             RecordScreen(
                 recording = recording,
@@ -91,7 +80,9 @@ fun SamjhoApp(
         }
 
         extraction != null -> {
-            BackHandler(onBack = viewModel::back)
+            BackHandler(
+                onBack = viewModel::back
+            )
 
             ResultScreen(
                 extraction = extraction,
@@ -102,12 +93,14 @@ fun SamjhoApp(
                 reading = state.reading,
                 onRead = viewModel::readAloud,
                 onStopReading = viewModel::stopReading,
+
                 actions = MedicineActions(
                     confirm = viewModel::confirmMedicine,
                     reject = viewModel::rejectMedicine,
                     undo = viewModel::undoMedicine,
                     choose = viewModel::chooseMedicine,
                 ),
+
                 onBack = viewModel::back,
             )
         }
@@ -117,9 +110,15 @@ fun SamjhoApp(
                 engine = state.engine,
                 llm = state.llm,
                 unavailable = state.unavailable,
-                onSelectEngine = { viewModel.selectEngine(it) },
+
+                onSelectEngine = {
+                    viewModel.selectEngine(it)
+                },
+
                 onRunDemo = viewModel::runDemo,
+
                 onRecord = viewModel::startRecording,
+
                 onLogout = onLogout,
             )
         }
