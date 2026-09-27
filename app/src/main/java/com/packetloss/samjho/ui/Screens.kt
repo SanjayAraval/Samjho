@@ -77,6 +77,7 @@ fun HomeScreen(
     onSelectEngine: (EngineId) -> Unit,
     onRunDemo: (DemoConsultation) -> Unit,
     onRecord: (Language) -> Unit,
+    onLogout: () -> Unit,
 ) {
     val context = LocalContext.current
     var consent by remember { mutableStateOf(false) }
@@ -211,6 +212,14 @@ fun HomeScreen(
                 fontSize = 13.sp,
                 color = Muted,
             )
+            Spacer(Modifier.height(24.dp))
+
+TextButton(
+    onClick = onLogout,
+    modifier = Modifier.fillMaxWidth()
+) {
+    Text("Logout")
+}
         }
     }
 }
