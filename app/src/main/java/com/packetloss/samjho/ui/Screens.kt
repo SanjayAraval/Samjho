@@ -309,7 +309,7 @@ fun ResultScreen(
                 Text(reading.reason, fontSize = 14.sp, color = WarnInk)
             }
             shareError?.let { Text("${t.shareFailed} $it", fontSize = 14.sp, color = WarnInk) }
-            if (ai is AiState.Checking) Text(t.stillChecking, fontSize = 13.sp, color = Muted)
+            AiIndicatorChip(t.aiIndicator(llm, ai))
 
             if (choosingShare) {
                 val pending = extraction.medicines.count { it.isUnconfirmed }
@@ -489,6 +489,15 @@ fun ResultScreen(
     }
 }
 
+/** Quiet and small: a dot (green while the model is running, grey when it is not) and one line. */
+@Composable
+private fun AiIndicatorChip(indicator: AiIndicator) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("●", fontSize = 10.sp, color = if (indicator.active) MaterialTheme.colorScheme.primary else Color(0xFFA0A8B0))
+        Text(indicator.text, fontSize = 13.sp, color = Muted)
+    }
+}
+
 /**
  * A medicine is only presented as a fact when the recogniser produced its own name. Anything
  * inferred (sounds like, an alternative hearing, an AI match) shows the raw word that was heard,
@@ -526,7 +535,7 @@ private fun MedicineCard(index: Int, m: Medicine, extraction: Extraction, t: Str
                     fromPaper -> Pill(t.confirmedFromPrescription, OkTint, primary)
                 }
                 // An AI match is always marked as one; the other ways a name was guessed are told by "heard as".
-                if (m.basis == Basis.AI_MATCHED || m.provenance == Provenance.AI) Pill(t.aiMatched, Color(0xFFEDEFF2), Muted)
+                if (m.basis == Basis.AI_MATCHED || m.provenance == Provenance.AI) Pill("✦ ${t.aiMatched}", AiTint, AiInk)
             }
         }
 

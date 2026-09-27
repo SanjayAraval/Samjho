@@ -87,6 +87,9 @@ These are the product. Several are enforced by tests; do not weaken a test to ge
 
 ## Device facts that bite
 
+- The release build packages arm64-v8a native code only (`abiFilters` in `app/build.gradle.kts`, about 136 MB signed); debug
+  builds stay universal. `assembleRelease` gives an unsigned APK: sign a copy with `apksigner` before installing.
+
 - Google's strict on-device recogniser has no models on the test phone; the system recogniser has offline
   en-US only (no en-IN, no hi-IN). Hindi recording needs Vosk, which is weak on drug names.
 - The recogniser's N-best lists are near-duplicates and its confidences are all 0.00.

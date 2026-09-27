@@ -20,6 +20,11 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            // The test phone and every phone this ships to is arm64. The other architectures' native code (Vosk,
+            // LiteRT-LM, ML Kit, JNA) was most of the APK and nothing here can run it.
+            ndk {
+                abiFilters += "arm64-v8a"
+            }
         }
     }
 

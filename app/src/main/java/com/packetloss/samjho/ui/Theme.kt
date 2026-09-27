@@ -14,6 +14,10 @@ val WarnTint = Color(0xFFFDECEA)
 val WarnInk = Color(0xFFB3261E)
 val OkTint = Color(0xFFE3F3F0)
 
+/** The mark on anything the on-device AI suggested. Deliberately not grey: it is proof the model did something. */
+val AiTint = Color(0xFFE6E9FB)
+val AiInk = Color(0xFF2A3AA6)
+
 private val LightScheme = lightColorScheme(
     primary = Color(0xFF00695C),
     onPrimary = Color.White,

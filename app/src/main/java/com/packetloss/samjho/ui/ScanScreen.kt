@@ -401,7 +401,7 @@ private fun ScanCard(t: Strings, item: ScanItem, actions: ScanActions, onChooseA
                     if (item.isUnconfirmed) Pill(t.unconfirmed, WarnTint, WarnInk) else Pill(t.confirmed, OkTint, primary)
                     // Only the two labels that say who decided: the AI, or the patient. How close a spelling was is ours to know.
                     when (item.basis) {
-                        ScanBasis.AI_MATCHED -> Pill(t.aiMatched, Color(0xFFEDEFF2), Muted)
+                        ScanBasis.AI_MATCHED -> Pill("✦ ${t.aiMatched}", AiTint, AiInk)
                         ScanBasis.PICKED -> Pill(t.pickedByYou, Color(0xFFEDEFF2), Muted)
                         else -> Unit
                     }

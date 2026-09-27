@@ -1,5 +1,8 @@
 package com.packetloss.samjho.ui
 
+import com.packetloss.samjho.AiState
+import com.packetloss.samjho.llm.LlmStatus
+import com.packetloss.samjho.llm.LlmStatusText
 import com.packetloss.samjho.model.Basis
 import com.packetloss.samjho.model.FoodRelation
 import com.packetloss.samjho.model.Language
@@ -198,6 +201,25 @@ class Strings(private val language: Language) {
         FoodRelation.WITH_FOOD -> pick("खाने के साथ", "with food")
     }
 
+    // ---- the on-device AI indicator
+    /**
+     * The one small line that says whether the AI model is really running. It says "on device" only while the model is
+     * loaded and answering; loading, failed, missing or not started all say something else, so the app never claims AI
+     * while it is off.
+     */
+    fun aiIndicator(llm: LlmStatus, ai: AiState): AiIndicator = when {
+        ai is AiState.Unavailable || llm is LlmStatus.Failed || llm === LlmStatus.Idle ->
+            AiIndicator(pick("AI बंद · सिर्फ़ नियम", "AI off · rules only"), active = false)
+        llm is LlmStatus.Loading ->
+            AiIndicator(pick("AI मॉडल तैयार हो रहा है…", "AI model loading…"), active = false)
+        llm is LlmStatus.Ready -> AiIndicator(
+            pick("AI फ़ोन पर · ", "AI on device · ") + LlmStatusText.backendLine(llm) +
+                if (ai is AiState.Checking) pick(" · जाँच रहा है…", " · checking…") else "",
+            active = true,
+        )
+        else -> AiIndicator(pick("AI बंद · सिर्फ़ नियम", "AI off · rules only"), active = false)
+    }
+
     // ---- medicine reminders
     val reminderChannel = pick("दवा की याद", "Medicine reminders")
     val reminderTitle = pick("दवा का समय", "Time for your medicine")
@@ -382,3 +404,6 @@ class Strings(private val language: Language) {
         MissingSection.FOLLOW_UP -> pick("अगली मुलाक़ात", "a next visit")
     }
 }
+
+/** [active] is true only while the model is loaded and answering. */
+data class AiIndicator(val text: String, val active: Boolean)
