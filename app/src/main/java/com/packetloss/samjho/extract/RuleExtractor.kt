@@ -594,20 +594,53 @@ object RuleExtractor {
     // ---------------------------------------------------------------- avoid
 
     private val AVOID_SUFFIX = listOf(
-        Regex("^(.*?)\\s+(?:मत|नहीं)\\s+(?:खाना|खाएं|खाइए|खाइये|पीना|पिएं|पीजिए|लेना|लीजिए|करना|करें)"),
-        Regex("^(.*?)\\s+से\\s+(?:बचें|बचना|बचिए|परहेज)"),
+        // The dropped-anusvara and informal forms ("खाए", "पिए", "खाओ", "पियो") are what recognisers give for "खाएं", "पिएं".
+        Regex("^(.*?)\\s+(?:मत|नहीं)\\s+(?:खाना|खाएं|खाए|खाये|खाइए|खाइये|खाओ|पीना|पिएं|पिए|पीए|पियो|पीओ|पीजिए|लेना|लीजिए|करना|करें|करे)"),
+        // "बचे" is "बचें" with the anusvara dropped; "बचे हुए" is "left over", which is not "avoid".
+        Regex("^(.*?)\\s+से\\s+(?:बचें|बचे(?!\\s+हुए|\\s+हुई|\\s+हुआ)|बचना|बचिए|बचो|परहेज)"),
         Regex("^(.*?)\\s+का\\s+परहेज"),
     )
     private val AVOID_PREFIX = listOf(
         Regex("(?:avoid|stay away from|keep away from|cut out)\\s+(.+)"),
-        Regex("(?:don't|do not|dont)\\s+(?:eat|have|take|drink|touch)\\s+(.+)"),
+        // Normalize turns the apostrophe into a space, so "don't" reaches this pattern as "don t".
+        Regex("(?:don't|don t|do not|dont)\\s+(?:eat|have|take|drink|touch)\\s+(.+)"),
         Regex("परहेज\\s+(?:करें|कीजिए)\\s+(.+)"),
     )
+    /**
+     * "Avoid" as a speech recogniser mishears it: found on a real run as "Award cold water and fried food", which
+     * lost the whole avoid section. These are ordinary words, so they only count as "avoid" when ALL of this holds:
+     *  - they open the sentence (after a filler like "also"), so "he won an award" or "the word is" never match;
+     *  - what follows does not start with a preposition or article ("a word of caution", "a word about the
+     *    medicine", "award for the best doctor" are other senses);
+     *  - what follows names something a person is told to avoid ([AVOID_THINGS]): food, drink or a habit.
+     */
+    private val AVOID_MISHEARD = Regex(
+        "^(?:(?:please|also|and|now|okay|ok|so|then)\\s+)*(?:award|awards|a\\s+word|a\\s+void|avoids)\\s+(.+)$",
+    )
+
+    private val AVOID_THINGS = setOf(
+        "water", "food", "foods", "fried", "oily", "oil", "spicy", "spice", "sugar", "sweet", "sweets", "salt", "salty",
+        "alcohol", "smoking", "smoke", "cigarette", "cigarettes", "tobacco", "ice", "icecream", "junk", "drinks", "drink",
+        "soda", "tea", "coffee", "caffeine", "milk", "curd", "pickle", "pickles", "cheese", "butter", "ghee", "chocolate",
+        "fast", "street", "dairy", "meat", "eggs", "sour", "cold",
+    )
+
+    private val ARTICLES = setOf("the", "a", "an", "this", "that", "these", "those", "my", "your", "his", "her", "our")
+
+    private fun misheardAvoidBody(n: String): String? {
+        val body = AVOID_MISHEARD.find(n)?.groupValues?.get(1) ?: return null
+        val words = body.split(" ").filter { it.isNotBlank() }
+        if (words.isEmpty() || words.first() in LEADING_PREPOSITIONS || words.first() in ARTICLES) return null
+        if (words.none { it.trim(',') in AVOID_THINGS }) return null
+        return body
+    }
+
     private val LIST_SPLIT = Regex(",|\\s+और\\s+|\\s+and\\s+|\\s+या\\s+|\\s+or\\s+")
 
     private fun avoidItems(n: String): List<String> {
         val body = AVOID_SUFFIX.firstNotNullOfOrNull { it.find(n)?.groupValues?.get(1) }
             ?: AVOID_PREFIX.firstNotNullOfOrNull { it.find(n)?.groupValues?.get(1) }
+            ?: misheardAvoidBody(n)
             ?: return emptyList()
 
         return body.split(LIST_SPLIT)
